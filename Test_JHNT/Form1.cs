@@ -26,12 +26,16 @@ namespace Test_JHNT
         string datasetsDir = @"C:\jhnt\pill_detection_system\datasets_ORIGIN_checked_bbox";
         string resultDir = @"C:\jhnt\pill_detection_system\results";
 
-        int num_Pills = 10;
+        int num_Pills = 5;
         int num_Trays = 12;
-        int multi_Pills = 2;
+        int multi_Pills = 5;
 
         int[] ranges_Execution = { 1, 5, 6, 10, 11, 12 };  // [1,5], [6,10], [11,12]
 
+        // Tray1 Polygon 방식: 0 = YOLO 마스크, 1 = 색상 기반(prescription) 마스크, 2 = 마스크 없이 복사만(크롭 -> tray1_polygon)
+        private const int Tray1PolygonMode = 0;  // 0, 1, 2 중 수동 선택
+        // Tray1 Polygon 저장 이름: null/빈 문자열이면 크롭 이름 그대로(*_polygon.bmp 또는 img_1_*.bmp), 값 지정 시 {pill_name}_1.bmp, _2.bmp, ...
+        private const string Tray1PolygonPillName = "P1234"; //null;  // 예: "P1234"
 
         // PillDetectionKernel DLL 함수 선언
         [DllImport("PillDetectionKernel.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -42,6 +46,12 @@ namespace Test_JHNT
 
         [DllImport("PillDetectionKernel.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int PrewarmPredictionProcessing();
+
+        [DllImport("PillDetectionKernel.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int GenerateTray1PolygonImagesForUI();
+
+        [DllImport("PillDetectionKernel.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int GenerateTray1PolygonImagesPrescriptionMaskForUI();
 
         public Form1()
         {
@@ -57,6 +67,226 @@ namespace Test_JHNT
             else
             {
                 textBoxOutput.AppendText(text);
+            }
+        }
+
+        //tray 이미지 코드
+        private void buttonTrayImage_Click(object sender, EventArgs e)
+        {
+            string tray1Path = Path.Combine(traysDir, "tray1.bmp");
+            string tray2Path = Path.Combine(traysDir, "tray2.bmp");
+
+            try
+            {
+                if (File.Exists(tray1Path))
+                {
+                    using (var bmp = new Bitmap(tray1Path))
+                    {
+                        pictureBoxTray1.Image?.Dispose();
+                        pictureBoxTray1.Image = new Bitmap(bmp);
+                    }
+                    AppendOutput($"tray1.bmp 로드 완료: {tray1Path}\r\n");
+                }
+                else
+                {
+                    AppendOutput($"오류: tray1.bmp를 찾을 수 없습니다: {tray1Path}\r\n");
+                }
+
+                if (File.Exists(tray2Path))
+                {
+                    using (var bmp = new Bitmap(tray2Path))
+                    {
+                        pictureBoxTray2.Image?.Dispose();
+                        pictureBoxTray2.Image = new Bitmap(bmp);
+                    }
+                    AppendOutput($"tray2.bmp 로드 완료: {tray2Path}\r\n");
+                }
+                else
+                {
+                    AppendOutput($"오류: tray2.bmp를 찾을 수 없습니다: {tray2Path}\r\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"예외 발생: {ex.Message}\r\n");
+            }
+        }
+
+        //tray1 polygons 코드: 마스크 생성 후 배경(empty_tray 색) 적용 이미지를 DLL에서 생성하고 표시
+        private void buttonTray1Polygon_Click(object sender, EventArgs e)
+        {
+            string tray1PolygonDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "tray1_polygon");
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                flowLayoutPanelTray1Polygons.Controls.Clear();
+                string croppedDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "cropped");
+
+                if (Tray1PolygonMode == 2)
+                {
+                    // 제3방식: 마스크 없이 크롭 폴더에서 tray1_polygon으로 복사만
+                    AppendOutput("\r\nTray1 polygon: 마스크 없이 크롭 이미지 복사 중...\r\n");
+                    if (!Directory.Exists(croppedDir))
+                    {
+                        stopwatch.Stop();
+                        AppendOutput($"오류: cropped 폴더를 찾을 수 없습니다: {croppedDir}\r\n");
+                        return;
+                    }
+                    var srcFiles = Directory.GetFiles(croppedDir, "img_1_*.bmp").OrderBy(f => f).ToList();
+                    if (srcFiles.Count == 0)
+                    {
+                        stopwatch.Stop();
+                        AppendOutput($"cropped 폴더에 img_1_*.bmp 파일이 없습니다.\r\n");
+                        return;
+                    }
+                    if (!Directory.Exists(tray1PolygonDir))
+                        Directory.CreateDirectory(tray1PolygonDir);
+                    for (int j = 0; j < srcFiles.Count; j++)
+                    {
+                        string destName = string.IsNullOrEmpty(Tray1PolygonPillName)
+                            ? Path.GetFileName(srcFiles[j])
+                            : $"{Tray1PolygonPillName}_{j + 1}.bmp";
+                        string destPath = Path.Combine(tray1PolygonDir, destName);
+                        try
+                        {
+                            File.Copy(srcFiles[j], destPath, true);
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendOutput($"경고: 복사 실패 {Path.GetFileName(srcFiles[j])} - {ex.Message}\r\n");
+                        }
+                    }
+                }
+                else
+                {
+                    bool usePrescriptionMask = (Tray1PolygonMode == 1);
+                    if (usePrescriptionMask)
+                        AppendOutput("\r\nTray1 polygon: 색상 기반 마스크(prescription) 생성 및 배경 적용 중...\r\n");
+                    else
+                        AppendOutput("\r\nTray1 polygon: YOLO 마스크 생성 및 배경 적용 중...\r\n");
+
+                    int ret = usePrescriptionMask
+                        ? GenerateTray1PolygonImagesPrescriptionMaskForUI()
+                        : GenerateTray1PolygonImagesForUI();
+                    if (ret != 0)
+                    {
+                        stopwatch.Stop();
+                        AppendOutput($"오류: Tray1 polygon 생성 실패 (반환값 {ret}). 소요 시간: {stopwatch.ElapsedMilliseconds} ms\r\n");
+                        return;
+                    }
+                }
+
+                if (!Directory.Exists(tray1PolygonDir))
+                {
+                    stopwatch.Stop();
+                    AppendOutput($"오류: tray1_polygon 폴더를 찾을 수 없습니다: {tray1PolygonDir}. 소요 시간: {stopwatch.ElapsedMilliseconds} ms\r\n");
+                    return;
+                }
+
+                List<string> polygonFiles;
+                if (Tray1PolygonMode == 2)
+                {
+                    polygonFiles = !string.IsNullOrEmpty(Tray1PolygonPillName)
+                        ? Directory.GetFiles(tray1PolygonDir, Tray1PolygonPillName + "_*.bmp").OrderBy(f => f).ToList()
+                        : Directory.GetFiles(tray1PolygonDir, "img_1_*.bmp").OrderBy(f => f).ToList();
+                }
+                else
+                {
+                    var polygonFilesOrdered = Directory.GetFiles(tray1PolygonDir, "*_polygon.bmp").OrderBy(f => f).ToList();
+                    if (!string.IsNullOrEmpty(Tray1PolygonPillName) && polygonFilesOrdered.Count > 0)
+                    {
+                        for (int j = 0; j < polygonFilesOrdered.Count; j++)
+                        {
+                            string newName = Path.Combine(tray1PolygonDir, $"{Tray1PolygonPillName}_{j + 1}.bmp");
+                            try
+                            {
+                                if (File.Exists(newName)) File.Delete(newName);
+                                File.Move(polygonFilesOrdered[j], newName);
+                                polygonFilesOrdered[j] = newName;
+                            }
+                            catch (Exception ex)
+                            {
+                                AppendOutput($"경고: 이름 변경 실패 - {ex.Message}\r\n");
+                            }
+                        }
+                    }
+                    polygonFiles = polygonFilesOrdered;
+                }
+
+                if (polygonFiles.Count == 0)
+                {
+                    stopwatch.Stop();
+                    AppendOutput($"tray1_polygon 폴더에 표시할 파일이 없습니다. 소요 시간: {stopwatch.ElapsedMilliseconds} ms\r\n");
+                    return;
+                }
+
+                AppendOutput($"Tray1 polygon 로드: {polygonFiles.Count}개\r\n");
+
+                // 표시되는 이미지들을 datasets_ORIGIN_checked_bbox\crop_imgs 에 crop_img_1.bmp, crop_img_2.bmp, ... 로 저장
+                string saveToDir = Path.Combine(datasetsDir, "crop_img");
+                try
+                {
+                    if (!Directory.Exists(saveToDir))
+                        Directory.CreateDirectory(saveToDir);
+                    for (int j = 0; j < polygonFiles.Count; j++)
+                    {
+                        string destPath = Path.Combine(saveToDir, $"crop_img_{j + 1}.bmp");
+                        File.Copy(polygonFiles[j], destPath, overwrite: true);
+                    }
+                    AppendOutput($"표시 이미지 {polygonFiles.Count}개 저장: {saveToDir} (crop_img_1.bmp ~ crop_img_{polygonFiles.Count}.bmp)\r\n");
+                }
+                catch (Exception ex)
+                {
+                    AppendOutput($"경고: datasets 폴더 저장 실패 - {ex.Message}\r\n");
+                }
+
+                foreach (string fullPath in polygonFiles)
+                {
+                    string displayName = Path.GetFileNameWithoutExtension(fullPath);
+                    var panel = new Panel { Size = new System.Drawing.Size(200, 120), Margin = new Padding(2) };
+                    var label = new Label
+                    {
+                        Text = displayName,
+                        AutoSize = false,
+                        Size = new System.Drawing.Size(196, 20),
+                        Location = new System.Drawing.Point(2, 0),
+                        Font = new Font("Consolas", 8F)
+                    };
+                    var pb = new PictureBox
+                    {
+                        Size = new System.Drawing.Size(196, 90),
+                        Location = new System.Drawing.Point(2, 22),
+                        SizeMode = PictureBoxSizeMode.Zoom,
+                        BorderStyle = BorderStyle.FixedSingle
+                    };
+
+                    try
+                    {
+                        using (var bmp = new Bitmap(fullPath))
+                        {
+                            pb.Image = new Bitmap(bmp);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"경고: {displayName} 로드 실패 - {ex.Message}\r\n");
+                        continue;
+                    }
+
+                    panel.Controls.Add(label);
+                    panel.Controls.Add(pb);
+                    flowLayoutPanelTray1Polygons.Controls.Add(panel);
+                }
+
+                stopwatch.Stop();
+                double sec = stopwatch.ElapsedMilliseconds / 1000.0;
+                AppendOutput($"총 소요 시간: {sec:F2} 초 ({stopwatch.ElapsedMilliseconds} ms) — 알약 {polygonFiles.Count}개 표시 완료\r\n");
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                AppendOutput($"예외 발생: {ex.Message}\r\n");
             }
         }
 
@@ -137,6 +367,26 @@ namespace Test_JHNT
             {
                 buttonPrewarm.Enabled = false;
                 AppendOutput("\r\n=== 사전 준비 시작 ===\r\n");
+
+                string tray1PolygonDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "tray1_polygon");
+                if (Directory.Exists(tray1PolygonDir))
+                {
+                    int deleted = 0;
+                    foreach (string file in Directory.GetFiles(tray1PolygonDir))
+                    {
+                        try
+                        {
+                            File.Delete(file);
+                            deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendOutput($"경고: 삭제 실패 {Path.GetFileName(file)} - {ex.Message}\r\n");
+                        }
+                    }
+                    if (deleted > 0)
+                        AppendOutput($"tray1_polygon 폴더 내 파일 {deleted}개 삭제됨.\r\n");
+                }
 
                 stopwatch.Start();
                 AppendOutput($"시작 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
@@ -312,7 +562,7 @@ namespace Test_JHNT
                 {
                     string subfolderPath = expandedSubfolders[i];
                     var pillFiles = Directory.GetFiles(subfolderPath)
-                        .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") ||
+                        .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") || 
                                    f.ToLower().EndsWith(".jpeg") || f.ToLower().EndsWith(".png"))
                         .ToList();
 
@@ -380,7 +630,7 @@ namespace Test_JHNT
                         {
                             string lastSubfolder = expandedSubfolders[expandedSubfolders.Count - 1];
                             var pillFiles = Directory.GetFiles(lastSubfolder)
-                                .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") ||
+                                .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") || 
                                            f.ToLower().EndsWith(".jpeg") || f.ToLower().EndsWith(".png"))
                                 .ToList();
 
@@ -739,7 +989,7 @@ namespace Test_JHNT
                 stopwatch.Start();
                 AppendOutput($"시작 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
 
-                AppendOutput("Pill Detecting...\r\n");
+                AppendOutput("PillDetectionKernel DLL 호출 중...\r\n");
 
                 // 방법 1: 기본 설정으로 실행 (main() 함수와 동일)
                 //int ret = await Task.Run(() => RunPillDetectionMain());
@@ -851,209 +1101,209 @@ namespace Test_JHNT
                     {
                         var worksheet = package.Workbook.Worksheets.Add("Results_Transposed");
 
-                        // 열 너비 설정 (Python 코드와 동일)
-                        worksheet.Column(1).Width = 25; // prescription_name
-                        worksheet.Column(2).Width = 12; // prescription_image
-
-                        // Step 1: CSV의 모든 셀 내용을 정확히 그대로 Excel에 복사
-                        int totalRows = csvData.Count;
-                        int maxCols = 0;
-
-                        // 최대 열 수 확인
-                        for (int row = 0; row < totalRows; row++)
+                    // 열 너비 설정 (Python 코드와 동일)
+                    worksheet.Column(1).Width = 25; // prescription_name
+                    worksheet.Column(2).Width = 12; // prescription_image
+                    
+                    // Step 1: CSV의 모든 셀 내용을 정확히 그대로 Excel에 복사
+                    int totalRows = csvData.Count;
+                    int maxCols = 0;
+                    
+                    // 최대 열 수 확인
+                    for (int row = 0; row < totalRows; row++)
+                    {
+                        if (csvData[row].Length > maxCols)
+                            maxCols = csvData[row].Length;
+                    }
+                    
+                    // 모든 행과 열을 정확히 복사
+                    for (int row = 0; row < totalRows; row++)
+                    {
+                        string[] rowData = csvData[row];
+                        
+                        // 행 높이 설정 (Python 코드와 동일: 80)
+                        worksheet.Row(row + 1).Height = 80;
+                        
+                        // 모든 열의 텍스트 데이터를 정확히 그대로 복사 (수정 없이)
+                        for (int col = 0; col < rowData.Length; col++)
                         {
-                            if (csvData[row].Length > maxCols)
-                                maxCols = csvData[row].Length;
-                        }
-
-                        // 모든 행과 열을 정확히 복사
-                        for (int row = 0; row < totalRows; row++)
-                        {
-                            string[] rowData = csvData[row];
-
-                            // 행 높이 설정 (Python 코드와 동일: 80)
-                            worksheet.Row(row + 1).Height = 80;
-
-                            // 모든 열의 텍스트 데이터를 정확히 그대로 복사 (수정 없이)
-                            for (int col = 0; col < rowData.Length; col++)
+                            var cell = worksheet.Cells[row + 1, col + 1];
+                            
+                            // CSV의 셀 값을 그대로 복사 (어떤 수정도 하지 않음)
+                            cell.Value = rowData[col];
+                            
+                            // 셀 형식 설정
+                            cell.Style.WrapText = true;
+                            cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                            
+                            // 헤더 행은 굵게
+                            if (row == 0)
                             {
-                                var cell = worksheet.Cells[row + 1, col + 1];
-
-                                // CSV의 셀 값을 그대로 복사 (어떤 수정도 하지 않음)
-                                cell.Value = rowData[col];
-
-                                // 셀 형식 설정
-                                cell.Style.WrapText = true;
-                                cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
-
-                                // 헤더 행은 굵게
-                                if (row == 0)
-                                {
-                                    cell.Style.Font.Bold = true;
-                                }
-
-                                // tray 열들의 너비 설정 (Python 코드와 동일: 30)
-                                if (col >= 2)
-                                {
-                                    worksheet.Column(col + 1).Width = 30;
-                                }
+                                cell.Style.Font.Bold = true;
                             }
-
-                            // 빈 열도 처리 (행마다 열 수가 다를 수 있음)
-                            for (int col = rowData.Length; col < maxCols; col++)
+                            
+                            // tray 열들의 너비 설정 (Python 코드와 동일: 30)
+                            if (col >= 2)
                             {
-                                var cell = worksheet.Cells[row + 1, col + 1];
-                                cell.Value = "";
-                                cell.Style.WrapText = true;
-                                cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
-
-                                if (row == 0)
-                                {
-                                    cell.Style.Font.Bold = true;
-                                }
-
-                                if (col >= 2)
-                                {
-                                    worksheet.Column(col + 1).Width = 30;
-                                }
+                                worksheet.Column(col + 1).Width = 30;
                             }
                         }
-
-                        AppendOutput($"CSV 데이터 복사 완료: {totalRows}행, {maxCols}열\r\n");
-
-                        // Step 2: 2열(prescription_image)에 prescription 폴더에서 이미지 삽입
-                        int prescriptionImageCount = 0;
-                        for (int row = 1; row < totalRows; row++) // 헤더 제외
+                        
+                        // 빈 열도 처리 (행마다 열 수가 다를 수 있음)
+                        for (int col = rowData.Length; col < maxCols; col++)
                         {
-                            string[] rowData = csvData[row];
-                            if (rowData.Length < 1) continue;
-
-                            // 1열에서 prescription 이름 추출 (괄호, 작은따옴표 제거)
-                            string prescriptionName = rowData[0];
-                            string cleanPrescriptionName = ExtractPrescriptionName(prescriptionName);
-
-                            if (!string.IsNullOrEmpty(cleanPrescriptionName))
+                            var cell = worksheet.Cells[row + 1, col + 1];
+                            cell.Value = "";
+                            cell.Style.WrapText = true;
+                            cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                            
+                            if (row == 0)
                             {
-                                string prescriptionImagePath = FindPrescriptionImage(prescriptionDir, cleanPrescriptionName);
-                                if (!string.IsNullOrEmpty(prescriptionImagePath) && File.Exists(prescriptionImagePath))
+                                cell.Style.Font.Bold = true;
+                            }
+                            
+                            if (col >= 2)
+                            {
+                                worksheet.Column(col + 1).Width = 30;
+                            }
+                        }
+                    }
+                    
+                    AppendOutput($"CSV 데이터 복사 완료: {totalRows}행, {maxCols}열\r\n");
+
+                    // Step 2: 2열(prescription_image)에 prescription 폴더에서 이미지 삽입
+                    int prescriptionImageCount = 0;
+                    for (int row = 1; row < totalRows; row++) // 헤더 제외
+                    {
+                        string[] rowData = csvData[row];
+                        if (rowData.Length < 1) continue;
+                        
+                        // 1열에서 prescription 이름 추출 (괄호, 작은따옴표 제거)
+                        string prescriptionName = rowData[0];
+                        string cleanPrescriptionName = ExtractPrescriptionName(prescriptionName);
+                        
+                        if (!string.IsNullOrEmpty(cleanPrescriptionName))
+                        {
+                            string prescriptionImagePath = FindPrescriptionImage(prescriptionDir, cleanPrescriptionName);
+                            if (!string.IsNullOrEmpty(prescriptionImagePath) && File.Exists(prescriptionImagePath))
+                            {
+                                try
                                 {
-                                    try
+                                    using (var originalImage = new Bitmap(prescriptionImagePath))
                                     {
-                                        using (var originalImage = new Bitmap(prescriptionImagePath))
-                                        {
-                                            int originalWidth = originalImage.Width;
-                                            int originalHeight = originalImage.Height;
-                                            int newWidth = originalWidth / 4;
-                                            int newHeight = originalHeight / 4;
-
-                                            FileInfo imageFile = new FileInfo(prescriptionImagePath);
-                                            var excelImage = worksheet.Drawings.AddPicture(
-                                                $"presc_img_{row}",
-                                                imageFile);
-
-                                            excelImage.SetPosition(row, 0, 1, 0);
-                                            excelImage.SetSize(newWidth, newHeight);
-                                            prescriptionImageCount++;
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        AppendOutput($"경고: prescription 이미지 삽입 실패 ({cleanPrescriptionName}): {ex.Message}\r\n");
+                                        int originalWidth = originalImage.Width;
+                                        int originalHeight = originalImage.Height;
+                                        int newWidth = originalWidth / 4;
+                                        int newHeight = originalHeight / 4;
+                                        
+                                        FileInfo imageFile = new FileInfo(prescriptionImagePath);
+                                        var excelImage = worksheet.Drawings.AddPicture(
+                                            $"presc_img_{row}",
+                                            imageFile);
+                                        
+                                        excelImage.SetPosition(row, 0, 1, 0);
+                                        excelImage.SetSize(newWidth, newHeight);
+                                        prescriptionImageCount++;
                                     }
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    AppendOutput($"경고: prescription 이미지를 찾을 수 없음: {cleanPrescriptionName}\r\n");
+                                    AppendOutput($"경고: prescription 이미지 삽입 실패 ({cleanPrescriptionName}): {ex.Message}\r\n");
                                 }
                             }
-                        }
-                        AppendOutput($"Prescription 이미지 삽입 완료: {prescriptionImageCount}개\r\n");
-
-                        // Step 3: 3열부터(tray 열들)에 cropped 폴더에서 이미지 삽입 (1/4 크기)
-                        int totalCropImages = 0;
-                        int missingCropImages = 0;
-                        for (int row = 1; row < totalRows; row++) // 헤더 제외
-                        {
-                            string[] rowData = csvData[row];
-
-                            // 3열부터 처리 (col = 2는 3열)
-                            for (int col = 2; col < rowData.Length; col++)
+                            else
                             {
-                                string cellValue = rowData[col];
-                                if (string.IsNullOrWhiteSpace(cellValue))
-                                    continue;
+                                AppendOutput($"경고: prescription 이미지를 찾을 수 없음: {cleanPrescriptionName}\r\n");
+                            }
+                        }
+                    }
+                    AppendOutput($"Prescription 이미지 삽입 완료: {prescriptionImageCount}개\r\n");
 
-                                // 셀에서 크롭 이미지 이름 추출
-                                List<string> cropNames = ExtractCropNames(cellValue);
+                    // Step 3: 3열부터(tray 열들)에 cropped 폴더에서 이미지 삽입 (1/4 크기)
+                    int totalCropImages = 0;
+                    int missingCropImages = 0;
+                    for (int row = 1; row < totalRows; row++) // 헤더 제외
+                    {
+                        string[] rowData = csvData[row];
+                        
+                        // 3열부터 처리 (col = 2는 3열)
+                        for (int col = 2; col < rowData.Length; col++)
+                        {
+                            string cellValue = rowData[col];
+                            if (string.IsNullOrWhiteSpace(cellValue))
+                                continue;
 
-                                if (cropNames.Count > 0)
+                            // 셀에서 크롭 이미지 이름 추출
+                            List<string> cropNames = ExtractCropNames(cellValue);
+                            
+                            if (cropNames.Count > 0)
+                            {
+                                var cell = worksheet.Cells[row + 1, col + 1];
+                                int imageIndex = 0;
+                                int totalImageHeight = 0;
+                                int imageSpacing = 5;
+                                
+                                foreach (string cropName in cropNames)
                                 {
-                                    var cell = worksheet.Cells[row + 1, col + 1];
-                                    int imageIndex = 0;
-                                    int totalImageHeight = 0;
-                                    int imageSpacing = 5;
-
-                                    foreach (string cropName in cropNames)
+                                    string imagePath = FindCropImage(croppedDir, cropName);
+                                    if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                                     {
-                                        string imagePath = FindCropImage(croppedDir, cropName);
-                                        if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                                        try
                                         {
-                                            try
+                                            using (var originalImage = new Bitmap(imagePath))
                                             {
-                                                using (var originalImage = new Bitmap(imagePath))
-                                                {
-                                                    int originalWidth = originalImage.Width;
-                                                    int originalHeight = originalImage.Height;
-                                                    int newWidth = originalWidth / 4;
-                                                    int newHeight = originalHeight / 4;
+                                                int originalWidth = originalImage.Width;
+                                                int originalHeight = originalImage.Height;
+                                                int newWidth = originalWidth / 4;
+                                                int newHeight = originalHeight / 4;
+                                                
+                                                FileInfo imageFile = new FileInfo(imagePath);
+                                                var excelImage = worksheet.Drawings.AddPicture(
+                                                    $"img_{row}_{col}_{imageIndex}",
+                                                    imageFile);
 
-                                                    FileInfo imageFile = new FileInfo(imagePath);
-                                                    var excelImage = worksheet.Drawings.AddPicture(
-                                                        $"img_{row}_{col}_{imageIndex}",
-                                                        imageFile);
-
-                                                    // 이미지를 셀 위쪽에 세로로 배치
-                                                    excelImage.SetPosition(row, totalImageHeight, col, 0);
-                                                    excelImage.SetSize(newWidth, newHeight);
-
-                                                    totalImageHeight += newHeight + imageSpacing;
-                                                    imageIndex++;
-                                                    totalCropImages++;
-                                                }
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                AppendOutput($"경고: 이미지 삽입 실패 ({cropName}): {ex.Message}\r\n");
-                                                missingCropImages++;
+                                                // 이미지를 셀 위쪽에 세로로 배치
+                                                excelImage.SetPosition(row, totalImageHeight, col, 0);
+                                                excelImage.SetSize(newWidth, newHeight);
+                                                
+                                                totalImageHeight += newHeight + imageSpacing;
+                                                imageIndex++;
+                                                totalCropImages++;
                                             }
                                         }
-                                        else
+                                        catch (Exception ex)
                                         {
-                                            AppendOutput($"경고: cropped 이미지를 찾을 수 없음: {cropName}\r\n");
+                                            AppendOutput($"경고: 이미지 삽입 실패 ({cropName}): {ex.Message}\r\n");
                                             missingCropImages++;
                                         }
                                     }
-
-                                    // 셀 높이를 이미지 높이에 맞게 조정
-                                    if (totalImageHeight > 0)
+                                    else
                                     {
-                                        worksheet.Row(row + 1).Height = Math.Max(worksheet.Row(row + 1).Height, totalImageHeight + 40);
+                                        AppendOutput($"경고: cropped 이미지를 찾을 수 없음: {cropName}\r\n");
+                                        missingCropImages++;
                                     }
                                 }
-                            }
-
-                            // 진행 상황 표시
-                            if (row % 10 == 0)
-                            {
-                                AppendOutput($"진행 중: {row}/{totalRows - 1} 행 처리 완료\r\n");
+                                
+                                // 셀 높이를 이미지 높이에 맞게 조정
+                                if (totalImageHeight > 0)
+                                {
+                                    worksheet.Row(row + 1).Height = Math.Max(worksheet.Row(row + 1).Height, totalImageHeight + 40);
+                                }
                             }
                         }
-                        AppendOutput($"Cropped 이미지 삽입 완료: {totalCropImages}개, 누락: {missingCropImages}개\r\n");
 
-                        // 파일 저장
-                        FileInfo excelFile = new FileInfo(excelPath);
-                        package.SaveAs(excelFile);//<-
-                        excelSuccess = true;
+                        // 진행 상황 표시
+                        if (row % 10 == 0)
+                        {
+                            AppendOutput($"진행 중: {row}/{totalRows - 1} 행 처리 완료\r\n");
+                        }
+                    }
+                    AppendOutput($"Cropped 이미지 삽입 완료: {totalCropImages}개, 누락: {missingCropImages}개\r\n");
+
+                    // 파일 저장
+                    FileInfo excelFile = new FileInfo(excelPath);
+                    package.SaveAs(excelFile);//<-
+                    excelSuccess = true;
                     }
                 });
 
@@ -1089,7 +1339,7 @@ namespace Test_JHNT
         private List<string[]> ReadCsvFile(string csvPath)
         {
             List<string[]> data = new List<string[]>();
-
+            
             using (var reader = new StreamReader(csvPath, Encoding.UTF8))
             {
                 string? line;
@@ -1215,47 +1465,47 @@ namespace Test_JHNT
             // 예: "'3400935329219(2)" -> "3400935329219"
             // 예: "`12345" -> "12345"
             // 예: "a(2)" -> "a", "a\n이미지이름" -> "a"
-
+            
             if (string.IsNullOrEmpty(prescriptionName))
                 return "";
-
+            
             // 줄바꿈으로 분리하여 첫 번째 부분만 사용
             string[] nameParts = prescriptionName.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             string cleanName = nameParts.Length > 0 ? nameParts[0].Trim() : prescriptionName.Trim();
-
+            
             // 작은따옴표(') 제거
             cleanName = cleanName.TrimStart('\'');
-
+            
             // 백틱(`) 제거
             cleanName = cleanName.TrimStart('`');
-
+            
             // 큰따옴표(") 제거
             cleanName = cleanName.Trim('"');
-
+            
             // 괄호와 그 이후 제거
             int parenIndex = cleanName.IndexOf('(');
             if (parenIndex > 0)
             {
                 cleanName = cleanName.Substring(0, parenIndex).Trim();
             }
-
+            
             return cleanName;
         }
 
         private List<string> ExtractCropNames(string cellValue)
         {
             List<string> cropNames = new List<string>();
-
+            
             // 셀 값 형식: "img_1_10 (0.70)" 또는 "img_1_10 (0.70, best_name)"
             // 여러 개는 줄바꿈으로 구분
             string[] lines = cellValue.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-
+            
             foreach (string line in lines)
             {
                 string trimmedLine = line.Trim();
                 if (string.IsNullOrEmpty(trimmedLine))
                     continue;
-
+                
                 // "crop_prefix (prob)" 또는 "crop_prefix (prob, best_name)" 형식에서 crop_prefix 추출
                 // 정규식: 시작부터 첫 번째 '(' 전까지 (공백 제거)
                 Match match = Regex.Match(trimmedLine, @"^([^(]+)");
@@ -1276,7 +1526,7 @@ namespace Test_JHNT
         {
             if (string.IsNullOrEmpty(prescriptionName))
                 return null;
-
+            
             // prescriptionName으로 시작하는 이미지 파일 찾기
             // 가능한 확장자: .bmp, .jpg, .jpeg, .png
             string[] extensions = { ".bmp", ".jpg", ".jpeg", ".png" };
@@ -1300,11 +1550,11 @@ namespace Test_JHNT
                 {
                     string fileName = Path.GetFileNameWithoutExtension(file);
                     string ext = Path.GetExtension(file).ToLower();
-
+                    
                     // 확장자가 이미지인지 확인
                     if (!extensions.Contains(ext))
                         continue;
-
+                    
                     // 파일명이 prescriptionName으로 시작하거나 정확히 일치하는지 확인
                     if (fileName.Equals(prescriptionName, StringComparison.OrdinalIgnoreCase) ||
                         fileName.StartsWith(prescriptionName, StringComparison.OrdinalIgnoreCase))
@@ -1326,7 +1576,7 @@ namespace Test_JHNT
         {
             if (string.IsNullOrEmpty(cropPrefix))
                 return null;
-
+            
             // cropPrefix로 시작하는 이미지 파일 찾기
             // 가능한 확장자: .bmp, .jpg, .jpeg, .png
             string[] extensions = { ".bmp", ".jpg", ".jpeg", ".png" };
@@ -1346,41 +1596,41 @@ namespace Test_JHNT
             {
                 // cropPrefix로 시작하는 모든 파일 검색
                 var allFiles = Directory.GetFiles(croppedDir);
-
+                
                 // 정확히 일치하는 파일 우선 검색
                 foreach (string file in allFiles)
                 {
                     string fileName = Path.GetFileNameWithoutExtension(file);
                     string ext = Path.GetExtension(file).ToLower();
-
+                    
                     // 확장자가 이미지인지 확인
                     if (!extensions.Contains(ext))
                         continue;
-
+                    
                     // 파일명이 정확히 일치하는지 확인
                     if (fileName.Equals(cropPrefix, StringComparison.OrdinalIgnoreCase))
                     {
                         return file;
                     }
                 }
-
+                
                 // 정확히 일치하지 않으면 cropPrefix로 시작하는 파일 검색
                 foreach (string file in allFiles)
                 {
                     string fileName = Path.GetFileNameWithoutExtension(file);
                     string ext = Path.GetExtension(file).ToLower();
-
+                    
                     // 확장자가 이미지인지 확인
                     if (!extensions.Contains(ext))
                         continue;
-
+                    
                     // 파일명이 cropPrefix로 시작하는지 확인
                     if (fileName.StartsWith(cropPrefix, StringComparison.OrdinalIgnoreCase))
                     {
                         // 예: cropPrefix가 "img_1_10"이고 파일이 "img_1_10_(292,640,399,747)"인 경우
                         // 다음 문자가 '_' 또는 '.' 또는 파일 끝이면 매칭
-                        if (fileName.Length == cropPrefix.Length ||
-                            fileName[cropPrefix.Length] == '_' ||
+                        if (fileName.Length == cropPrefix.Length || 
+                            fileName[cropPrefix.Length] == '_' || 
                             fileName[cropPrefix.Length] == '.')
                         {
                             return file;
