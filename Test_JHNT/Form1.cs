@@ -1,4 +1,3 @@
-
 using System;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
@@ -17,8 +16,6 @@ using System.Drawing.Imaging;
 
 namespace Test_JHNT
 {
-
-
     public partial class Form1 : Form
     {
         string emptyTrayPath = @"C:\jhnt\pill_detection_system\empty_tray\empty_tray.bmp";
@@ -30,14 +27,17 @@ namespace Test_JHNT
         int num_Trays = 12;
         int multi_Pills = 5;
 
-        int[] ranges_Execution = { 1, 5, 6, 10, 11, 12 };  // [1,5], [6,10], [11,12]
+        int[] ranges_Execution = { 1, 5, 6, 10, 11, 12 };
 
-        // Tray1 Polygon 방식: 0 = YOLO 마스크, 1 = 색상 기반(prescription) 마스크, 2 = 마스크 없이 복사만(크롭 -> tray1_polygon)
-        private const int Tray1PolygonMode = 0;  // 0, 1, 2 중 수동 선택
-        // Tray1 Polygon 저장 이름: null/빈 문자열이면 크롭 이름 그대로(*_polygon.bmp 또는 img_1_*.bmp), 값 지정 시 {pill_name}_1.bmp, _2.bmp, ...
-        private const string Tray1PolygonPillName = "P1234"; //null;  // 예: "P1234"
+        private const int Tray1PolygonMode = 0;
+        private const string Tray1PolygonPillName = "P1234";
 
-        // PillDetectionKernel DLL 함수 선언
+        // 선택된 약 목록
+        private List<string> selectedPills = new List<string>();
+
+        // 클래스 변수에 추가 - 각 약의 이미지 개수를 저장하는 딕셔너리
+        private Dictionary<string, int> pillImageCounts = new Dictionary<string, int>();
+
         [DllImport("PillDetectionKernel.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int RunPillDetectionMain(int[] ranges, int count);
 
@@ -70,49 +70,6 @@ namespace Test_JHNT
             }
         }
 
-        //tray 이미지 코드
-        private void buttonTrayImage_Click(object sender, EventArgs e)
-        {
-            string tray1Path = Path.Combine(traysDir, "tray1.bmp");
-            string tray2Path = Path.Combine(traysDir, "tray2.bmp");
-
-            try
-            {
-                if (File.Exists(tray1Path))
-                {
-                    using (var bmp = new Bitmap(tray1Path))
-                    {
-                        pictureBoxTray1.Image?.Dispose();
-                        pictureBoxTray1.Image = new Bitmap(bmp);
-                    }
-                    AppendOutput($"tray1.bmp 로드 완료: {tray1Path}\r\n");
-                }
-                else
-                {
-                    AppendOutput($"오류: tray1.bmp를 찾을 수 없습니다: {tray1Path}\r\n");
-                }
-
-                if (File.Exists(tray2Path))
-                {
-                    using (var bmp = new Bitmap(tray2Path))
-                    {
-                        pictureBoxTray2.Image?.Dispose();
-                        pictureBoxTray2.Image = new Bitmap(bmp);
-                    }
-                    AppendOutput($"tray2.bmp 로드 완료: {tray2Path}\r\n");
-                }
-                else
-                {
-                    AppendOutput($"오류: tray2.bmp를 찾을 수 없습니다: {tray2Path}\r\n");
-                }
-            }
-            catch (Exception ex)
-            {
-                AppendOutput($"예외 발생: {ex.Message}\r\n");
-            }
-        }
-
-        //tray1 polygons 코드: 마스크 생성 후 배경(empty_tray 색) 적용 이미지를 DLL에서 생성하고 표시
         private void buttonTray1Polygon_Click(object sender, EventArgs e)
         {
             string tray1PolygonDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "tray1_polygon");
@@ -125,7 +82,6 @@ namespace Test_JHNT
 
                 if (Tray1PolygonMode == 2)
                 {
-                    // 제3방식: 마스크 없이 크롭 폴더에서 tray1_polygon으로 복사만
                     AppendOutput("\r\nTray1 polygon: 마스크 없이 크롭 이미지 복사 중...\r\n");
                     if (!Directory.Exists(croppedDir))
                     {
@@ -223,7 +179,6 @@ namespace Test_JHNT
 
                 AppendOutput($"Tray1 polygon 로드: {polygonFiles.Count}개\r\n");
 
-                // 표시되는 이미지들을 datasets_ORIGIN_checked_bbox\crop_imgs 에 crop_img_1.bmp, crop_img_2.bmp, ... 로 저장
                 string saveToDir = Path.Combine(datasetsDir, "crop_img");
                 try
                 {
@@ -290,6 +245,176 @@ namespace Test_JHNT
             }
         }
 
+        /// <summary>
+        /// 트레이 이미지 업로드 버튼 클릭 이벤트 (다중 선택 버전)
+        /// </summary>
+        private void buttonUploadTray_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Title = "트레이 이미지 선택 (여러 개 선택 가능)";
+                openFileDialog.Filter = "이미지 파일 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|모든 파일 (*.*)|*.*";
+                openFileDialog.Multiselect = true;  // 여러 파일 선택 가능
+                openFileDialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string[] selectedFiles = openFileDialog.FileNames;
+                    
+                    if (selectedFiles.Length == 0)
+                    {
+                        AppendOutput("선택된 파일이 없습니다.\r\n");
+                        return;
+                    }
+
+                    try
+                    {
+                        AppendOutput($"\r\n=== 트레이 이미지 업로드 시작 ({selectedFiles.Length}개) ===\r\n");
+
+                        // 트레이 폴더 존재 확인
+                        if (!Directory.Exists(traysDir))
+                        {
+                            Directory.CreateDirectory(traysDir);
+                            AppendOutput($"트레이 폴더 생성: {traysDir}\r\n");
+                        }
+
+                        int successCount = 0;
+                        int failCount = 0;
+
+                        // 각 파일 처리
+                        for (int i = 0; i < selectedFiles.Length; i++)
+                        {
+                            string selectedFile = selectedFiles[i];
+                            
+                            try
+                            {
+                                AppendOutput($"\r\n[{i + 1}/{selectedFiles.Length}] 처리 중...\r\n");
+                                AppendOutput($"선택된 파일: {selectedFile}\r\n");
+
+                                // 파일 존재 및 읽기 가능 여부 확인
+                                if (!File.Exists(selectedFile))
+                                {
+                                    AppendOutput($"⚠ 오류: 파일을 찾을 수 없습니다.\r\n");
+                                    failCount++;
+                                    continue;
+                                }
+
+                                // 파일 크기 확인 (너무 큰 파일 필터링)
+                                long fileSize = new FileInfo(selectedFile).Length;
+                                if (fileSize > 100 * 1024 * 1024) // 100MB 이상
+                                {
+                                    AppendOutput($"⚠ 오류: 파일이 너무 큽니다 ({fileSize / 1024.0 / 1024.0:F2} MB). 100MB 이하의 파일만 가능합니다.\r\n");
+                                    failCount++;
+                                    continue;
+                                }
+
+                                AppendOutput($"파일 크기: {fileSize / 1024.0:F2} KB\r\n");
+
+                                // 원본 파일명 유지 (확장자는 .bmp로 통일)
+                                string originalFileName = Path.GetFileNameWithoutExtension(selectedFile);
+                                string targetFileName = $"{originalFileName}.bmp";
+                                string targetPath = Path.Combine(traysDir, targetFileName);
+
+                                AppendOutput($"대상 파일명: {targetFileName}\r\n");
+
+                                // 이미지를 BMP로 변환하여 저장
+                                ConvertAndSaveTrayImage(selectedFile, targetPath);
+                                successCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                AppendOutput($"⚠ 예외 발생: {ex.Message}\r\n");
+                                failCount++;
+                            }
+                        }
+
+                        // 최종 결과 출력
+                        AppendOutput($"\r\n=== 업로드 완료 ===\r\n");
+                        AppendOutput($"성공: {successCount}개\r\n");
+                        if (failCount > 0)
+                        {
+                            AppendOutput($"실패: {failCount}개\r\n");
+                        }
+                        AppendOutput($"총 처리: {selectedFiles.Length}개\r\n");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"\r\n예외 발생: {ex.Message}\r\n");
+                        if (ex.InnerException != null)
+                        {
+                            AppendOutput($"내부 예외: {ex.InnerException.Message}\r\n");
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ConvertAndSaveTrayImage(string sourcePath, string targetPath)
+        {
+            try
+            {
+                string targetDir = Path.GetDirectoryName(targetPath);
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                    AppendOutput($"대상 디렉토리 생성: {targetDir}\r\n");
+                }
+
+                if (File.Exists(targetPath))
+                {
+                    try
+                    {
+                        File.Delete(targetPath);
+                        AppendOutput($"기존 파일 삭제: {Path.GetFileName(targetPath)}\r\n");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"경고: 기존 파일 삭제 실패 - {ex.Message}\r\n");
+                    }
+                }
+
+                if (!File.Exists(sourcePath))
+                {
+                    throw new FileNotFoundException($"원본 파일을 찾을 수 없습니다: {sourcePath}>:");
+                }
+
+                AppendOutput($"원본 파일 읽기: {Path.GetFileName(sourcePath)}\r\n");
+
+                Bitmap originalBitmap = null;
+                try
+                {
+                    originalBitmap = new Bitmap(sourcePath);
+                    AppendOutput($"이미지 로드 완료: {originalBitmap.Width}x{originalBitmap.Height}\r\n");
+
+                    using (Bitmap bmpCopy = new Bitmap(originalBitmap))
+                    {
+                        System.Threading.Thread.Sleep(50);
+                        
+                        bmpCopy.Save(targetPath, ImageFormat.Bmp);
+                        AppendOutput($"✓ 이미지 저장 완료: {Path.GetFileName(targetPath)}\r\n");
+                        AppendOutput($"  파일 크기: {new FileInfo(targetPath).Length / 1024.0:F2} KB\r\n");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"이미지 변환 중 오류 발생: {ex.Message}", ex);
+                }
+                finally
+                {
+                    originalBitmap?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"이미지 변환 실패: {ex.Message}", ex);
+            }
+        }
+
+        // ===== 아래는 기존 랜덤 생성 코드 (주석처리) =====
+        // 랜덤 트레이 생성은 더 이상 사용하지 않습니다.
+        // 사용자가 업로드한 이미지를 직접 사용합니다.
+
+        /*
         private async void buttonGenerateTrays_Click(object sender, EventArgs e)
         {
             Stopwatch stopwatch = new Stopwatch();
@@ -357,6 +482,16 @@ namespace Test_JHNT
             {
                 buttonGenerateTrays.Enabled = true;
             }
+        }
+        */
+
+        /// <summary>
+        /// 수정된 buttonGenerateTrays_Click: 업로드 기능으로 대체
+        /// </summary>
+        private void buttonGenerateTrays_Click(object sender, EventArgs e)
+        {
+            AppendOutput("\r\n※ '트레이 이미지 업로드' 기능으로 대체되었습니다.\r\n");
+            AppendOutput("   우측 상단의 업로드 버튼을 사용하여 트레이 이미지를 업로드하세요.\r\n");
         }
 
         private async void buttonPrewarm_Click(object sender, EventArgs e)
@@ -458,524 +593,6 @@ namespace Test_JHNT
             }
         }
 
-        private void GenerateRandomTrays(string emptyTrayPath, string datasetsDir, string traysDir, int nPills, int mTrays, int multi)
-        {
-            // 빈 트레이 이미지 로드
-            Mat trayImage = Cv2.ImRead(emptyTrayPath);
-            if (trayImage.Empty())
-            {
-                throw new FileNotFoundException($"빈 트레이 이미지 로드 실패: {emptyTrayPath}");
-            }
-
-            // 배경색 및 원판 반지름 추출
-            var (backgroundColor, diskRadius) = ExtractBackgroundColor(trayImage);
-            AppendOutput($"추출된 배경색: ({backgroundColor.Item1}, {backgroundColor.Item2}, {backgroundColor.Item3})\r\n");
-            AppendOutput($"원판 반지름: {diskRadius} pixels\r\n");
-
-            // 서브폴더 수집
-            List<string> subfolders = new List<string>();
-            foreach (var item in Directory.GetDirectories(datasetsDir))
-            {
-                subfolders.Add(item);
-            }
-            AppendOutput($"서브폴더 개수: {subfolders.Count}\r\n");
-
-            if (subfolders.Count == 0)
-            {
-                throw new Exception("사용할 서브폴더가 없습니다.");
-            }
-
-            // multi 정규화
-            if (multi < 1) multi = 1;
-            if (nPills < 1) nPills = 1;
-            if (multi > nPills) multi = nPills;
-
-            int uniqueNeeded = nPills - (multi - 1);
-            if (subfolders.Count < uniqueNeeded)
-            {
-                AppendOutput($"경고: 서브폴더 개수({subfolders.Count})가 필요 유니크 개수({uniqueNeeded})보다 적습니다.\r\n");
-                uniqueNeeded = subfolders.Count;
-                nPills = uniqueNeeded + (multi - 1);
-                if (nPills <= 0)
-                {
-                    throw new Exception("사용할 서브폴더가 없습니다.");
-                }
-                if (multi > nPills) multi = nPills;
-            }
-
-            // 랜덤으로 유니크 서브폴더 선택
-            Random random = new Random();
-            var selectedUniqueSubfolders = subfolders.OrderBy(x => random.Next()).Take(uniqueNeeded).ToList();
-
-            // 중복시킬 알약 선택
-            string dupSubfolder = null;
-            if (multi > 1 && selectedUniqueSubfolders.Count > 0)
-            {
-                dupSubfolder = selectedUniqueSubfolders[random.Next(selectedUniqueSubfolders.Count)];
-            }
-
-            // pill_list.txt 저장
-            string pillListPath = Path.Combine(traysDir, "pill_list.txt");
-            using (var writer = new StreamWriter(pillListPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                foreach (var subfolderPath in selectedUniqueSubfolders)
-                {
-                    string subfolderName = Path.GetFileName(subfolderPath);
-                    if (dupSubfolder != null && subfolderPath == dupSubfolder)
-                    {
-                        writer.WriteLine($"{subfolderName}({multi})");
-                    }
-                    else
-                    {
-                        writer.WriteLine(subfolderName);
-                    }
-                }
-            }
-            AppendOutput($"\r\n선택된 알약 리스트가 {pillListPath}에 저장되었습니다. (multi={multi})\r\n");
-
-            // m개의 트레이 생성
-            for (int trayIdx = 1; trayIdx <= mTrays; trayIdx++)
-            {
-                AppendOutput($"\r\n트레이 {trayIdx}/{mTrays} 생성 중...\r\n");
-
-                Mat currentTray = trayImage.Clone();
-
-                // 이번 트레이에서 실제로 뿌릴 서브폴더 목록
-                List<string> expandedSubfolders = new List<string>(selectedUniqueSubfolders);
-                if (dupSubfolder != null)
-                {
-                    for (int i = 0; i < multi - 1; i++)
-                    {
-                        expandedSubfolders.Add(dupSubfolder);
-                    }
-                }
-
-                // 랜덤하게 섞기
-                expandedSubfolders = expandedSubfolders.OrderBy(x => random.Next()).ToList();
-
-                List<Mat> pillImages = new List<Mat>();
-                List<Mat> pillMasks = new List<Mat>();
-
-                // n-1개는 겹치지 않게 배치할 대상으로 마스크 준비
-                int pillsToPlace = Math.Min(nPills - 1, expandedSubfolders.Count);
-                for (int i = 0; i < pillsToPlace; i++)
-                {
-                    string subfolderPath = expandedSubfolders[i];
-                    var pillFiles = Directory.GetFiles(subfolderPath)
-                        .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") || 
-                                   f.ToLower().EndsWith(".jpeg") || f.ToLower().EndsWith(".png"))
-                        .ToList();
-
-                    if (pillFiles.Count == 0) continue;
-
-                    string randomPillFile = pillFiles[random.Next(pillFiles.Count)];
-                    Mat pillImage = Cv2.ImRead(randomPillFile);
-
-                    if (pillImage.Empty()) continue;
-
-                    Mat pillMask = CreatePillMask(pillImage, backgroundColor);
-                    pillImages.Add(pillImage);
-                    pillMasks.Add(pillMask);
-                }
-
-                if (pillMasks.Count > 0)
-                {
-                    try
-                    {
-                        var positions = PlaceMasksRandomInDisk(diskRadius, pillMasks, random);
-
-                        int trayH = currentTray.Height;
-                        int trayW = currentTray.Width;
-                        int centerOffsetY = (trayH - 2 * diskRadius) / 2;
-                        int centerOffsetX = (trayW - 2 * diskRadius) / 2;
-
-                        // 계산된 위치에 알약들 배치
-                        for (int i = 0; i < pillImages.Count && i < positions.Count; i++)
-                        {
-                            int y0 = positions[i].Item1;
-                            int x0 = positions[i].Item2;
-                            int actualY = y0 + centerOffsetY;
-                            int actualX = x0 + centerOffsetX;
-
-                            Mat pillImage = pillImages[i];
-                            Mat pillMask = pillMasks[i];
-
-                            // 그림자 추가
-                            AddRealisticShadow(currentTray, pillImage, actualX, actualY, pillMask, random);
-
-                            // 알약 배치
-                            int pillH = pillImage.Height;
-                            int pillW = pillImage.Width;
-                            int endY = Math.Min(actualY + pillH, trayH);
-                            int endX = Math.Min(actualX + pillW, trayW);
-                            int actualH = endY - actualY;
-                            int actualW = endX - actualX;
-
-                            if (actualH > 0 && actualW > 0)
-                            {
-                                Rect trayRect = new Rect(actualX, actualY, actualW, actualH);
-                                Rect pillRect = new Rect(0, 0, actualW, actualH);
-                                Rect maskRect = new Rect(0, 0, actualW, actualH);
-
-                                Mat trayRegion = new Mat(currentTray, trayRect);
-                                Mat pillPart = new Mat(pillImage, pillRect);
-                                Mat maskPart = new Mat(pillMask, maskRect);
-
-                                pillPart.CopyTo(trayRegion, maskPart);
-                            }
-                        }
-
-                        // 마지막 1개 알약은 기존 알약 중 하나와 겹치게 배치
-                        if (nPills > 0 && expandedSubfolders.Count == nPills && positions.Count > 0)
-                        {
-                            string lastSubfolder = expandedSubfolders[expandedSubfolders.Count - 1];
-                            var pillFiles = Directory.GetFiles(lastSubfolder)
-                                .Where(f => f.ToLower().EndsWith(".bmp") || f.ToLower().EndsWith(".jpg") || 
-                                           f.ToLower().EndsWith(".jpeg") || f.ToLower().EndsWith(".png"))
-                                .ToList();
-
-                            if (pillFiles.Count > 0)
-                            {
-                                string randomPillFile = pillFiles[random.Next(pillFiles.Count)];
-                                Mat overlapPill = Cv2.ImRead(randomPillFile);
-
-                                if (!overlapPill.Empty())
-                                {
-                                    int refIdx = random.Next(positions.Count);
-                                    int refY0 = positions[refIdx].Item1;
-                                    int refX0 = positions[refIdx].Item2;
-                                    int refY = refY0 + centerOffsetY;
-                                    int refX = refX0 + centerOffsetX;
-
-                                    double overlapRatio = random.NextDouble() * 0.2 + 0.1; // 0.1 ~ 0.3
-                                    int pillH = overlapPill.Height;
-                                    int pillW = overlapPill.Width;
-                                    int offsetY = (int)(pillH * (1 - overlapRatio) * (random.Next(2) == 0 ? -1 : 1));
-                                    int offsetX = (int)(pillW * (1 - overlapRatio) * (random.Next(2) == 0 ? -1 : 1));
-
-                                    int overlapY = Math.Max(0, Math.Min(refY + offsetY, trayH - pillH));
-                                    int overlapX = Math.Max(0, Math.Min(refX + offsetX, trayW - pillW));
-
-                                    Mat overlapMask = CreatePillMask(overlapPill, backgroundColor);
-                                    AddRealisticShadow(currentTray, overlapPill, overlapX, overlapY, overlapMask, random);
-
-                                    int endY = Math.Min(overlapY + pillH, trayH);
-                                    int endX = Math.Min(overlapX + pillW, trayW);
-                                    int actualH = endY - overlapY;
-                                    int actualW = endX - overlapX;
-
-                                    if (actualH > 0 && actualW > 0)
-                                    {
-                                        Rect trayRect = new Rect(overlapX, overlapY, actualW, actualH);
-                                        Rect pillRect = new Rect(0, 0, actualW, actualH);
-                                        Rect maskRect = new Rect(0, 0, actualW, actualH);
-
-                                        Mat trayRegion = new Mat(currentTray, trayRect);
-                                        Mat pillPart = new Mat(overlapPill, pillRect);
-                                        Mat maskPart = new Mat(overlapMask, maskRect);
-
-                                        pillPart.CopyTo(trayRegion, maskPart);
-                                    }
-
-                                    AppendOutput($"  마지막 알약을 {refIdx + 1}번째 알약과 {overlapRatio * 100:F0}% 겹치게 배치\r\n");
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        AppendOutput($"  경고: 마스크 배치 실패 - {ex.Message}\r\n");
-                    }
-                }
-
-                string trayFilename = $"tray{trayIdx}.bmp";
-                string trayPath = Path.Combine(traysDir, trayFilename);
-                Cv2.ImWrite(trayPath, currentTray);
-                AppendOutput($"  트레이 저장 완료: {trayFilename}\r\n");
-            }
-        }
-
-        private (System.ValueTuple<int, int, int>, int) ExtractBackgroundColor(Mat trayImage)
-        {
-            int h = trayImage.Height;
-            int w = trayImage.Width;
-            int centerY = h / 2;
-            int centerX = w / 2;
-
-            // 중앙 픽셀의 색상
-            Vec3b centerColorBgr = trayImage.At<Vec3b>(centerY, centerX);
-            var centerColor = (centerColorBgr.Item2, centerColorBgr.Item1, centerColorBgr.Item0); // BGR -> RGB
-
-            // 반지름을 증가시키며 원판 경계 찾기
-            int maxRadius = Math.Min(centerX, centerY);
-            int diskRadius = maxRadius;
-
-            for (int r = 10; r < maxRadius; r += 5)
-            {
-                // 원 둘레상의 점들 샘플링
-                var edgeColors = new List<System.ValueTuple<int, int, int>>();
-                for (int angleIdx = 0; angleIdx < 36; angleIdx++)
-                {
-                    double angle = 2.0 * Math.PI * angleIdx / 36.0;
-                    int x = (int)(centerX + r * Math.Cos(angle));
-                    int y = (int)(centerY + r * Math.Sin(angle));
-                    if (x >= 0 && x < w && y >= 0 && y < h)
-                    {
-                        Vec3b colorBgr = trayImage.At<Vec3b>(y, x);
-                        edgeColors.Add((colorBgr.Item2, colorBgr.Item1, colorBgr.Item0)); // BGR -> RGB
-                    }
-                }
-
-                if (edgeColors.Count > 0)
-                {
-                    // 가장 많이 나타나는 색상
-                    var mostCommon = edgeColors.GroupBy(c => c).OrderByDescending(g => g.Count()).First().Key;
-
-                    // 중앙 색상과 다르면 경계를 찾은 것
-                    double colorDiff = Math.Sqrt(
-                        Math.Pow(mostCommon.Item1 - centerColor.Item1, 2) +
-                        Math.Pow(mostCommon.Item2 - centerColor.Item2, 2) +
-                        Math.Pow(mostCommon.Item3 - centerColor.Item3, 2));
-                    if (colorDiff > 30)
-                    {
-                        diskRadius = r - 10;
-                        break;
-                    }
-                }
-            }
-
-            return (centerColor, diskRadius);
-        }
-
-        private Mat CreatePillMask(Mat pillImage, System.ValueTuple<int, int, int> backgroundColor)
-        {
-            Mat pillRgb = new Mat();
-            Cv2.CvtColor(pillImage, pillRgb, ColorConversionCodes.BGR2RGB);
-
-            int bgR = backgroundColor.Item1;
-            int bgG = backgroundColor.Item2;
-            int bgB = backgroundColor.Item3;
-
-            // 배경색과의 차이 계산
-            Mat[] channels = new Mat[3];
-            Cv2.Split(pillRgb, out channels);
-            Mat rChannel = channels[0];
-            Mat gChannel = channels[1];
-            Mat bChannel = channels[2];
-
-            Mat bgDiffR = new Mat();
-            Mat bgDiffG = new Mat();
-            Mat bgDiffB = new Mat();
-            Cv2.Absdiff(rChannel, new Scalar(bgR), bgDiffR);
-            Cv2.Absdiff(gChannel, new Scalar(bgG), bgDiffG);
-            Cv2.Absdiff(bChannel, new Scalar(bgB), bgDiffB);
-
-            Mat bgDiff = new Mat();
-            Cv2.Add(bgDiffR, bgDiffG, bgDiff);
-            Cv2.Add(bgDiff, bgDiffB, bgDiff);
-
-            // 검은색, 흰색과의 차이
-            Mat blackDiff = new Mat();
-            Mat whiteDiff = new Mat();
-            Cv2.Absdiff(rChannel, new Scalar(0), blackDiff);
-            Mat temp = new Mat();
-            Cv2.Absdiff(gChannel, new Scalar(0), temp);
-            Cv2.Add(blackDiff, temp, blackDiff);
-            Cv2.Absdiff(bChannel, new Scalar(0), temp);
-            Cv2.Add(blackDiff, temp, blackDiff);
-
-            Cv2.Absdiff(rChannel, new Scalar(255), whiteDiff);
-            Cv2.Absdiff(gChannel, new Scalar(255), temp);
-            Cv2.Add(whiteDiff, temp, whiteDiff);
-            Cv2.Absdiff(bChannel, new Scalar(255), temp);
-            Cv2.Add(whiteDiff, temp, whiteDiff);
-
-            // 배경색, 검은색, 흰색과의 차이가 30보다 큰 영역 찾기
-            Mat bgMask = new Mat();
-            Mat blackMask = new Mat();
-            Mat whiteMask = new Mat();
-            Cv2.Threshold(bgDiff, bgMask, 30, 255, ThresholdTypes.Binary);
-            Cv2.Threshold(blackDiff, blackMask, 30, 255, ThresholdTypes.Binary);
-            Cv2.Threshold(whiteDiff, whiteMask, 30, 255, ThresholdTypes.Binary);
-
-            Mat mask = new Mat();
-            Cv2.BitwiseAnd(bgMask, blackMask, mask);
-            Cv2.BitwiseAnd(mask, whiteMask, mask);
-
-            Mat pillGray = new Mat();
-            Cv2.CvtColor(pillImage, pillGray, ColorConversionCodes.BGR2GRAY);
-            Mat darkMask = new Mat();
-            Cv2.Threshold(pillGray, darkMask, 30, 255, ThresholdTypes.Binary);
-            Cv2.BitwiseAnd(mask, darkMask, mask);
-
-            Mat kernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new OpenCvSharp.Size(3, 3));
-            Mat maskUint8 = new Mat();
-            mask.ConvertTo(maskUint8, MatType.CV_8U, 255);
-
-            Cv2.MorphologyEx(maskUint8, maskUint8, MorphTypes.Close, kernel);
-            Cv2.MorphologyEx(maskUint8, maskUint8, MorphTypes.Open, kernel);
-
-            // Connected Components
-            Mat labels = new Mat();
-            Mat stats = new Mat();
-            Mat centroids = new Mat();
-            int numLabels = Cv2.ConnectedComponentsWithStats(maskUint8, labels, stats, centroids, PixelConnectivity.Connectivity8);
-
-            if (numLabels > 1)
-            {
-                // 가장 큰 컴포넌트 찾기
-                int largestLabel = 1;
-                int largestArea = 0;
-                for (int i = 1; i < numLabels; i++)
-                {
-                    int area = stats.At<int>(i, (int)ConnectedComponentsTypes.Area);
-                    if (area > largestArea)
-                    {
-                        largestArea = area;
-                        largestLabel = i;
-                    }
-                }
-
-                // 가장 큰 컴포넌트만 남기기
-                Mat largestMask = new Mat();
-                Cv2.InRange(labels, new Scalar(largestLabel), new Scalar(largestLabel), largestMask);
-                maskUint8 = largestMask;
-            }
-
-            // 0보다 큰 값만 남기기
-            Mat finalMask = new Mat();
-            Cv2.Threshold(maskUint8, finalMask, 0, 255, ThresholdTypes.Binary);
-            return finalMask;
-        }
-
-        private List<System.ValueTuple<int, int>> PlaceMasksRandomInDisk(int R, List<Mat> masks, Random random, int maxTrialsPerMask = 1000, int margin = 50)
-        {
-            int H = 2 * R;
-            int W = 2 * R;
-            Mat diskOccupied = Mat.Zeros(H, W, MatType.CV_8UC1);
-            int cy = R;
-            int cx = R;
-
-            int Reff = Math.Max(0, R - margin);
-            int R2 = Reff * Reff;
-
-            Mat circleMask = Mat.Zeros(H, W, MatType.CV_8UC1);
-            for (int y = 0; y < H; y++)
-            {
-                for (int x = 0; x < W; x++)
-                {
-                    int dx = x - cx;
-                    int dy = y - cy;
-                    if (dx * dx + dy * dy <= R2)
-                    {
-                        circleMask.Set<byte>(y, x, 255);
-                    }
-                }
-            }
-
-            List<System.ValueTuple<int, int>> positions = new List<System.ValueTuple<int, int>>();
-
-            foreach (Mat mask in masks)
-            {
-                if (mask.Empty()) continue;
-
-                int mh = mask.Height;
-                int mw = mask.Width;
-
-                // 마스크의 픽셀 위치 수집
-                List<OpenCvSharp.Point> maskPoints = new List<OpenCvSharp.Point>();
-                for (int y = 0; y < mh; y++)
-                {
-                    for (int x = 0; x < mw; x++)
-                    {
-                        if (mask.At<byte>(y, x) > 0)
-                        {
-                            maskPoints.Add(new OpenCvSharp.Point(x, y));
-                        }
-                    }
-                }
-
-                if (maskPoints.Count == 0)
-                {
-                    positions.Add((0, 0));
-                    continue;
-                }
-
-                bool placed = false;
-                for (int trial = 0; trial < maxTrialsPerMask; trial++)
-                {
-                    int y0 = random.Next(0, Math.Max(1, H - mh + 1));
-                    int x0 = random.Next(0, Math.Max(1, W - mw + 1));
-
-                    bool canPlace = true;
-                    foreach (OpenCvSharp.Point pt in maskPoints)
-                    {
-                        int yy = pt.Y + y0;
-                        int xx = pt.X + x0;
-
-                        if (yy >= H || xx >= W) { canPlace = false; break; }
-                        if (circleMask.At<byte>(yy, xx) == 0) { canPlace = false; break; }
-                        if (diskOccupied.At<byte>(yy, xx) != 0) { canPlace = false; break; }
-                    }
-
-                    if (canPlace)
-                    {
-                        foreach (OpenCvSharp.Point pt in maskPoints)
-                        {
-                            int yy = pt.Y + y0;
-                            int xx = pt.X + x0;
-                            diskOccupied.Set<byte>(yy, xx, 255);
-                        }
-                        positions.Add((y0, x0));
-                        placed = true;
-                        break;
-                    }
-                }
-
-                if (!placed)
-                {
-                    throw new Exception($"마스크를 배치할 수 있는 위치를 찾지 못했습니다. (maxTrialsPerMask={maxTrialsPerMask}, R={R})");
-                }
-            }
-
-            return positions;
-        }
-
-        private void AddRealisticShadow(Mat baseImage, Mat pillImage, int x, int y, Mat pillMask, Random random)
-        {
-            int shadowOffsetX = random.Next(-3, 4);
-            int shadowOffsetY = random.Next(-3, 4);
-            int shadowBlur = random.Next(2, 6);
-            double shadowOpacity = random.NextDouble() * 0.2 + 0.1;
-
-            Mat shadow = Mat.Zeros(baseImage.Size(), MatType.CV_8UC3);
-            int sx = x + shadowOffsetX;
-            int sy = y + shadowOffsetY;
-
-            try
-            {
-                int h = pillImage.Height;
-                int w = pillImage.Width;
-
-                if (sx >= 0 && sy >= 0 && sx + w < shadow.Width && sy + h < shadow.Height)
-                {
-                    Rect shadowRect = new Rect(sx, sy, w, h);
-                    Mat shadowRegion = new Mat(shadow, shadowRect);
-                    Mat maskRegion = new Mat(pillMask, new Rect(0, 0, w, h));
-
-                    shadowRegion.SetTo(new Scalar(50, 50, 50), maskRegion);
-
-                    Mat shadowBlurred = new Mat();
-                    Cv2.GaussianBlur(shadow, shadowBlurred, new OpenCvSharp.Size(shadowBlur * 2 + 1, shadowBlur * 2 + 1), 0);
-                    Cv2.AddWeighted(baseImage, 1.0, shadowBlurred, shadowOpacity, 0, baseImage);
-                }
-            }
-            catch
-            {
-                // 무시
-            }
-        }
-
         private async void buttonRun_Click(object sender, EventArgs e)
         {
             Stopwatch stopwatch = new Stopwatch();
@@ -989,52 +606,217 @@ namespace Test_JHNT
                 stopwatch.Start();
                 AppendOutput($"시작 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
 
-                AppendOutput("PillDetectionKernel DLL 호출 중...\r\n");
-
-                // 방법 1: 기본 설정으로 실행 (main() 함수와 동일)
-                //int ret = await Task.Run(() => RunPillDetectionMain());
-
-                // 방법 2: 커스텀 범위로 실행하려면 아래 코드 사용
-                //int[] ranges = { 1, 5, 6, 10, 11, 12 };  // [1,5], [6,10], [11,12]
-                int[] ranges = ranges_Execution;
-                int ret = await Task.Run(() => RunPillDetectionMain(ranges, 3));  // 3개의 범위
-
-                // 시간 측정 중지
-                stopwatch.Stop();
-
-                if (ret != 0)
+                // pill_list.txt 확인
+                string pillListPath = Path.Combine(traysDir, "pill_list.txt");
+                AppendOutput($"\r\n[1단계] 선택된 약 목록 확인\r\n");
+                AppendOutput($"파일 경로: {pillListPath}\r\n");
+                if (File.Exists(pillListPath))
                 {
-                    AppendOutput($"오류 발생: 반환 코드 {ret}\r\n");
-                    AppendOutput($"실행 시간: {stopwatch.Elapsed.TotalSeconds:F3} 초 ({stopwatch.ElapsedMilliseconds} ms)\r\n");
+                    var pillList = File.ReadAllLines(pillListPath, Encoding.UTF8);
+                    AppendOutput($"✓ 메모장에 등록된 약: {pillList.Length}개\r\n");
+                    foreach (var pill in pillList)
+                    {
+                        AppendOutput($"  - {pill}\r\n");
+                    }
+                }
+                else
+                {
+                    AppendOutput($"✗ 오류: pill_list.txt 파일이 없습니다!\r\n");
                     buttonRun.Enabled = true;
                     return;
                 }
 
-                AppendOutput("처리 완료!\r\n");
-                AppendOutput("\r\n결과 파일:\r\n");
-                //string resultDir = @"C:\jhnt\pill_detection_system\results";
-                AppendOutput($"- {resultDir}\\final_result.csv\r\n");
-                AppendOutput($"- {resultDir}\\final_result.txt\r\n");
-                AppendOutput($"- {resultDir}\\summary.txt\r\n");
+                // 업로드된 트레이 이미지 확인
+                AppendOutput($"\r\n[2단계] 업로드된 트레이 이미지 확인\r\n");
+                AppendOutput($"폴더 경로: {traysDir}\r\n");
+                if (Directory.Exists(traysDir))
+                {
+                    var trayImages = Directory.GetFiles(traysDir, "*.bmp").ToList();
+                    trayImages.RemoveAll(f => Path.GetFileName(f).ToLower() == "pill_list.txt");
 
-                // 실행 시간 출력
+                    AppendOutput($"✓ 등록된 트레이 이미지: {trayImages.Count}개\r\n");
+
+                    if (trayImages.Count == 0)
+                    {
+                        AppendOutput($"✗ 경고: BMP 파일이 없습니다!\r\n");
+                        buttonRun.Enabled = true;
+                        return;
+                    }
+
+                    foreach (var img in trayImages.OrderBy(x => x).Take(5))
+                    {
+                        var fileInfo = new FileInfo(img);
+                        AppendOutput($"  - {Path.GetFileName(img)} ({fileInfo.Length / 1024}KB)\r\n");
+                    }
+                    if (trayImages.Count > 5)
+                    {
+                        AppendOutput($"  ... 외 {trayImages.Count - 5}개\r\n");
+                    }
+                }
+                else
+                {
+                    AppendOutput($"✗ 오류: trays 폴더가 없습니다!\r\n");
+                    buttonRun.Enabled = true;
+                    return;
+                }
+
+                // DLL 실행 전 절대 경로 출력 (DLL이 상대 경로 사용 가능성)
+                AppendOutput($"\r\n[3단계] 절대 경로 정보\r\n");
+                AppendOutput($"Trays Dir: {Path.GetFullPath(traysDir)}\r\n");
+                AppendOutput($"Datasets Dir: {Path.GetFullPath(datasetsDir)}\r\n");
+                AppendOutput($"Result Dir: {Path.GetFullPath(resultDir)}\r\n");
+
+                // 결과 디렉토리 확인
+                AppendOutput($"\r\n[4단계] 결과 디렉토리 확인\r\n");
+                if (!Directory.Exists(resultDir))
+                {
+                    Directory.CreateDirectory(resultDir);
+                    AppendOutput($"✓ 결과 디렉토리 생성\r\n");
+                }
+                else
+                {
+                    AppendOutput($"✓ 결과 디렉토리 존재\r\n");
+                }
+
+                // 기존 결과 파일 삭제
+                AppendOutput($"\r\n[5단계] 기존 결과 파일 정리\r\n");
+                string csvPath = Path.Combine(resultDir, "final_result.csv");
+                string txtPath = Path.Combine(resultDir, "final_result.txt");
+                string summaryPath = Path.Combine(resultDir, "summary.txt");
+
+                if (File.Exists(csvPath)) { File.Delete(csvPath); AppendOutput($"✓ {Path.GetFileName(csvPath)} 삭제\r\n"); }
+                if (File.Exists(txtPath)) { File.Delete(txtPath); AppendOutput($"✓ {Path.GetFileName(txtPath)} 삭제\r\n"); }
+                if (File.Exists(summaryPath)) { File.Delete(summaryPath); AppendOutput($"✓ {Path.GetFileName(summaryPath)} 삭제\r\n"); }
+
+                AppendOutput($"\r\n[6단계] DLL 실행\r\n");
+
+                int[] ranges = GetAvailableTrayRanges();
+                if (ranges.Length == 0)
+                {
+                    AppendOutput($"✗ 오류: 처리할 트레이가 없습니다!\r\n");
+                    buttonRun.Enabled = true;
+                    return;
+                }
+
+                AppendOutput($"호출: RunPillDetectionMain(ranges, {ranges.Length})\r\n");
+                AppendOutput($"처리 대상 트레이: [{string.Join(", ", ranges)}]\r\n");
+
+                int ret = await Task.Run(() => RunPillDetectionMain(ranges, ranges.Length));
+
+                stopwatch.Stop();
+
+                AppendOutput($"\r\n[7단계] DLL 실행 결과\r\n");
+                AppendOutput($"반환값: {ret}\r\n");
+                AppendOutput($"실행 시간: {stopwatch.Elapsed.TotalMilliseconds}ms\r\n");
+
+                if (ret != 0)
+                {
+                    AppendOutput($"✗ 오류 발생: 반환 코드 {ret}\r\n");
+                    AppendOutput($"💡 팁: DLL이 `pill_list.txt` 또는 트레이 이미지를 찾지 못했을 수 있습니다.\r\n");
+                }
+                else
+                {
+                    AppendOutput($"✓ DLL 실행 성공\r\n");
+                }
+
+                // 생성된 파일 확인
+                AppendOutput($"\r\n[8단계] 생성된 결과 파일 확인\r\n");
+                System.Threading.Thread.Sleep(1000); // 1초 대기
+
+                string[] resultFiles = { csvPath, txtPath, summaryPath };
+                foreach (var filePath in resultFiles)
+                {
+                    if (File.Exists(filePath))
+                    {
+                        var fileInfo = new FileInfo(filePath);
+                        AppendOutput($"✓ {Path.GetFileName(filePath)} ({fileInfo.Length} bytes)\r\n");
+                    }
+                    else
+                    {
+                        AppendOutput($"✗ {Path.GetFileName(filePath)} - 생성되지 않음\r\n");
+                    }
+                }
+
+                // CSV 내용 확인
+                AppendOutput($"\r\n[9단계] CSV 결과 내용 확인\r\n");
+                if (File.Exists(csvPath))
+                {
+                    try
+                    {
+                        using (var fileStream = new FileStream(csvPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        using (var reader = new StreamReader(fileStream, Encoding.UTF8))
+                        {
+                            var lines = new List<string>();
+                            string line;
+                            while ((line = reader.ReadLine()) != null)
+                            {
+                                lines.Add(line);
+                            }
+
+                            if (lines.Count == 0)
+                            {
+                                AppendOutput($"⚠ CSV 파일이 비어있습니다!\r\n");
+                                AppendOutput($"💡 원인: DLL이 트레이에서 약을 검출하지 못했습니다.\r\n");
+                            }
+                            else
+                            {
+                                AppendOutput($"✓ 총 {lines.Count}행\r\n");
+                                AppendOutput($"첫 5줄:\r\n");
+                                for (int i = 0; i < Math.Min(5, lines.Count); i++)
+                                {
+                                    string displayLine = lines[i];
+                                    if (displayLine.Length > 120)
+                                        AppendOutput($"  {i}: {displayLine.Substring(0, 120)}...\r\n");
+                                    else
+                                        AppendOutput($"  {i}: {displayLine}\r\n");
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"✗ CSV 읽기 오류: {ex.Message}\r\n");
+                    }
+                }
+
+                AppendOutput($"\r\n[9단계] pill_list.txt 내용 확인\r\n");
+                if (File.Exists(pillListPath))
+                {
+                    var pillContent = File.ReadAllLines(pillListPath, Encoding.UTF8);
+                    AppendOutput($"pill_list.txt 내용:\r\n");
+                    foreach (var line in pillContent)
+                    {
+                        AppendOutput($"  - '{line}'\r\n");
+                    }
+                }
+
+                AppendOutput($"\r\n[10단계] DLL 작동 진단\r\n");
+                
+                // 결과 파일 생성 확인
+                if (File.Exists(csvPath) && new FileInfo(csvPath).Length > 114)
+                {
+                    AppendOutput($"✓ CSV에 데이터가 있음 - DLL이 정상 작동\r\n");
+                }
+                else
+                {
+                    AppendOutput($"✗ CSV에 데이터가 없음 - DLL이 트레이를 분석하지 못함\r\n");
+                    AppendOutput($"💡 확인 사항:\r\n");
+                    AppendOutput($"  1. pill_list.txt가 올바른 형식인지 확인\r\n");
+                    AppendOutput($"  2. {traysDir} 경로가 올바른지 확인\r\n");
+                    AppendOutput($"  3. {datasetsDir} 폴더가 존재하고 학습 모델이 있는지 확인\r\n");
+                    AppendOutput($"  4. DLL의 설정 파일이나 환경 변수 확인\r\n");
+                }
+
                 TimeSpan elapsed = stopwatch.Elapsed;
-                AppendOutput("\r\n=== 실행 시간 ===\r\n");
+                AppendOutput($"\r\n=== 처리 완료 ===\r\n");
                 AppendOutput($"종료 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
                 AppendOutput($"총 실행 시간: {elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}.{elapsed.Milliseconds:D3}\r\n");
-                AppendOutput($"총 실행 시간: {elapsed.TotalSeconds:F3} 초\r\n");
-                AppendOutput($"총 실행 시간: {elapsed.TotalMilliseconds:F0} 밀리초\r\n");
-                AppendOutput("\r\n=== 처리 완료 ===\r\n");
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                AppendOutput($"\r\n예외 발생: {ex.Message}\r\n");
+                AppendOutput($"\r\n✗ 예외 발생: {ex.Message}\r\n");
                 AppendOutput($"스택 트레이스:\r\n{ex.StackTrace}\r\n");
-                if (stopwatch.IsRunning == false)
-                {
-                    AppendOutput($"실행 시간: {stopwatch.Elapsed.TotalSeconds:F3} 초 ({stopwatch.ElapsedMilliseconds} ms)\r\n");
-                }
             }
             finally
             {
@@ -1054,7 +836,6 @@ namespace Test_JHNT
                 stopwatch.Start();
                 AppendOutput($"시작 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
 
-                //string resultDir = @"E:\JHNT\JHNT_20250914_part\pill_detection_system\results";
                 string csvPath = Path.Combine(resultDir, "final_result.csv");
                 string excelPath = Path.Combine(resultDir, "final_result_ex.xlsx");
                 string croppedDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "cropped");
@@ -1083,7 +864,6 @@ namespace Test_JHNT
                 bool excelSuccess = false;
                 await Task.Run(() =>
                 {
-                    // CSV 파일 읽기
                     List<string[]> csvData = ReadCsvFile(csvPath);
                     if (csvData.Count == 0)
                     {
@@ -1093,217 +873,210 @@ namespace Test_JHNT
 
                     AppendOutput($"Excel 파일 생성 중: {excelPath}\r\n");
 
-                    // EPPlus 라이선스 설정 (비상업적 사용)
                     ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-                    // Excel 파일 생성
                     using (var package = new ExcelPackage())
                     {
                         var worksheet = package.Workbook.Worksheets.Add("Results_Transposed");
 
-                    // 열 너비 설정 (Python 코드와 동일)
-                    worksheet.Column(1).Width = 25; // prescription_name
-                    worksheet.Column(2).Width = 12; // prescription_image
-                    
-                    // Step 1: CSV의 모든 셀 내용을 정확히 그대로 Excel에 복사
-                    int totalRows = csvData.Count;
-                    int maxCols = 0;
-                    
-                    // 최대 열 수 확인
-                    for (int row = 0; row < totalRows; row++)
-                    {
-                        if (csvData[row].Length > maxCols)
-                            maxCols = csvData[row].Length;
-                    }
-                    
-                    // 모든 행과 열을 정확히 복사
-                    for (int row = 0; row < totalRows; row++)
-                    {
-                        string[] rowData = csvData[row];
+                        worksheet.Column(1).Width = 25;
+                        worksheet.Column(2).Width = 12;
                         
-                        // 행 높이 설정 (Python 코드와 동일: 80)
-                        worksheet.Row(row + 1).Height = 80;
+                        int totalRows = csvData.Count;
+                        int maxCols = 0;
                         
-                        // 모든 열의 텍스트 데이터를 정확히 그대로 복사 (수정 없이)
-                        for (int col = 0; col < rowData.Length; col++)
+                        for (int row = 0; row < totalRows; row++)
                         {
-                            var cell = worksheet.Cells[row + 1, col + 1];
-                            
-                            // CSV의 셀 값을 그대로 복사 (어떤 수정도 하지 않음)
-                            cell.Value = rowData[col];
-                            
-                            // 셀 형식 설정
-                            cell.Style.WrapText = true;
-                            cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
-                            
-                            // 헤더 행은 굵게
-                            if (row == 0)
-                            {
-                                cell.Style.Font.Bold = true;
-                            }
-                            
-                            // tray 열들의 너비 설정 (Python 코드와 동일: 30)
-                            if (col >= 2)
-                            {
-                                worksheet.Column(col + 1).Width = 30;
-                            }
+                            if (csvData[row].Length > maxCols)
+                                maxCols = csvData[row].Length;
                         }
                         
-                        // 빈 열도 처리 (행마다 열 수가 다를 수 있음)
-                        for (int col = rowData.Length; col < maxCols; col++)
+                        for (int row = 0; row < totalRows; row++)
                         {
-                            var cell = worksheet.Cells[row + 1, col + 1];
-                            cell.Value = "";
-                            cell.Style.WrapText = true;
-                            cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                            string[] rowData = csvData[row];
                             
-                            if (row == 0)
-                            {
-                                cell.Style.Font.Bold = true;
-                            }
+                            worksheet.Row(row + 1).Height = 80;
                             
-                            if (col >= 2)
-                            {
-                                worksheet.Column(col + 1).Width = 30;
-                            }
-                        }
-                    }
-                    
-                    AppendOutput($"CSV 데이터 복사 완료: {totalRows}행, {maxCols}열\r\n");
-
-                    // Step 2: 2열(prescription_image)에 prescription 폴더에서 이미지 삽입
-                    int prescriptionImageCount = 0;
-                    for (int row = 1; row < totalRows; row++) // 헤더 제외
-                    {
-                        string[] rowData = csvData[row];
-                        if (rowData.Length < 1) continue;
-                        
-                        // 1열에서 prescription 이름 추출 (괄호, 작은따옴표 제거)
-                        string prescriptionName = rowData[0];
-                        string cleanPrescriptionName = ExtractPrescriptionName(prescriptionName);
-                        
-                        if (!string.IsNullOrEmpty(cleanPrescriptionName))
-                        {
-                            string prescriptionImagePath = FindPrescriptionImage(prescriptionDir, cleanPrescriptionName);
-                            if (!string.IsNullOrEmpty(prescriptionImagePath) && File.Exists(prescriptionImagePath))
-                            {
-                                try
-                                {
-                                    using (var originalImage = new Bitmap(prescriptionImagePath))
-                                    {
-                                        int originalWidth = originalImage.Width;
-                                        int originalHeight = originalImage.Height;
-                                        int newWidth = originalWidth / 4;
-                                        int newHeight = originalHeight / 4;
-                                        
-                                        FileInfo imageFile = new FileInfo(prescriptionImagePath);
-                                        var excelImage = worksheet.Drawings.AddPicture(
-                                            $"presc_img_{row}",
-                                            imageFile);
-                                        
-                                        excelImage.SetPosition(row, 0, 1, 0);
-                                        excelImage.SetSize(newWidth, newHeight);
-                                        prescriptionImageCount++;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    AppendOutput($"경고: prescription 이미지 삽입 실패 ({cleanPrescriptionName}): {ex.Message}\r\n");
-                                }
-                            }
-                            else
-                            {
-                                AppendOutput($"경고: prescription 이미지를 찾을 수 없음: {cleanPrescriptionName}\r\n");
-                            }
-                        }
-                    }
-                    AppendOutput($"Prescription 이미지 삽입 완료: {prescriptionImageCount}개\r\n");
-
-                    // Step 3: 3열부터(tray 열들)에 cropped 폴더에서 이미지 삽입 (1/4 크기)
-                    int totalCropImages = 0;
-                    int missingCropImages = 0;
-                    for (int row = 1; row < totalRows; row++) // 헤더 제외
-                    {
-                        string[] rowData = csvData[row];
-                        
-                        // 3열부터 처리 (col = 2는 3열)
-                        for (int col = 2; col < rowData.Length; col++)
-                        {
-                            string cellValue = rowData[col];
-                            if (string.IsNullOrWhiteSpace(cellValue))
-                                continue;
-
-                            // 셀에서 크롭 이미지 이름 추출
-                            List<string> cropNames = ExtractCropNames(cellValue);
-                            
-                            if (cropNames.Count > 0)
+                            for (int col = 0; col < rowData.Length; col++)
                             {
                                 var cell = worksheet.Cells[row + 1, col + 1];
-                                int imageIndex = 0;
-                                int totalImageHeight = 0;
-                                int imageSpacing = 5;
                                 
-                                foreach (string cropName in cropNames)
+                                cell.Value = rowData[col];
+                                
+                                cell.Style.WrapText = true;
+                                cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                                
+                                if (row == 0)
                                 {
-                                    string imagePath = FindCropImage(croppedDir, cropName);
-                                    if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
-                                    {
-                                        try
-                                        {
-                                            using (var originalImage = new Bitmap(imagePath))
-                                            {
-                                                int originalWidth = originalImage.Width;
-                                                int originalHeight = originalImage.Height;
-                                                int newWidth = originalWidth / 4;
-                                                int newHeight = originalHeight / 4;
-                                                
-                                                FileInfo imageFile = new FileInfo(imagePath);
-                                                var excelImage = worksheet.Drawings.AddPicture(
-                                                    $"img_{row}_{col}_{imageIndex}",
-                                                    imageFile);
+                                    cell.Style.Font.Bold = true;
+                                }
+                                
+                                if (col >= 2)
+                                {
+                                    worksheet.Column(col + 1).Width = 30;
+                                }
+                            }
+                            
+                            for (int col = rowData.Length; col < maxCols; col++)
+                            {
+                                var cell = worksheet.Cells[row + 1, col + 1];
+                                cell.Value = "";
+                                cell.Style.WrapText = true;
+                                cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                                
+                                if (row == 0)
+                                {
+                                    cell.Style.Font.Bold = true;
+                                }
+                                
+                                if (col >= 2)
+                                {
+                                    worksheet.Column(col + 1).Width = 30;
+                                }
+                            }
+                        }
+                        
+                        AppendOutput($"CSV 데이터 복사 완료: {totalRows}행, {maxCols}열\r\n");
 
-                                                // 이미지를 셀 위쪽에 세로로 배치
-                                                excelImage.SetPosition(row, totalImageHeight, col, 0);
-                                                excelImage.SetSize(newWidth, newHeight);
+                        int prescriptionImageCount = 0;
+                        for (int row = 1; row < totalRows; row++)
+                        {
+                            string[] rowData = csvData[row];
+                            if (rowData.Length < 1) continue;
+                            
+                            string prescriptionName = rowData[0];
+                            string cleanPrescriptionName = ExtractPrescriptionName(prescriptionName);
+                            
+                            if (!string.IsNullOrEmpty(cleanPrescriptionName))
+                            {
+                                string prescriptionImagePath = FindPrescriptionImage(prescriptionDir, cleanPrescriptionName);
+                                if (!string.IsNullOrEmpty(prescriptionImagePath) && File.Exists(prescriptionImagePath))
+                                {
+                                    try
+                                    {
+                                        using (var originalImage = new Bitmap(prescriptionImagePath))
+                                        {
+                                            int originalWidth = originalImage.Width;
+                                            int originalHeight = originalImage.Height;
+                                            int newWidth = originalWidth / 4;
+                                            int newHeight = originalHeight / 4;
+                                            
+                                            FileInfo imageFile = new FileInfo(prescriptionImagePath);
+                                            var excelImage = worksheet.Drawings.AddPicture(
+                                                $"presc_img_{row}",
+                                                imageFile);
+                                            
+                                            excelImage.SetPosition(row, 0, 1, 0);
+                                            excelImage.SetSize(newWidth, newHeight);
+                                            prescriptionImageCount++;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        AppendOutput($"경고: prescription 이미지 삽입 실패 ({cleanPrescriptionName}): {ex.Message}\r\n");
+                                    }
+                                }
+                                else
+                                {
+                                    AppendOutput($"경고: prescription 이미지를 찾을 수 없음: {cleanPrescriptionName}\r\n");
+                                }
+                            }
+                        }
+                        AppendOutput($"Prescription 이미지 삽입 완료: {prescriptionImageCount}개\r\n");
+
+                        int totalCropImages = 0;
+                        int missingCropImages = 0;
+                        for (int row = 1; row < totalRows; row++)
+                        {
+                            string[] rowData = csvData[row];
+                            
+                            for (int col = 2; col < rowData.Length; col++)
+                            {
+                                string cellValue = rowData[col];
+                                if (string.IsNullOrWhiteSpace(cellValue))
+                                    continue;
+
+                                // 새로운 메서드 사용 - 약 정보 포함
+                                List<(string cropName, float probability, string pillCode)> cropDetails = 
+                                    ExtractCropNamesWithDetails(cellValue);
+                                
+                                if (cropDetails.Count > 0)
+                                {
+                                    var cell = worksheet.Cells[row + 1, col + 1];
+                                    int imageIndex = 0;
+                                    int totalImageHeight = 0;
+                                    int imageSpacing = 5;
+                                    
+                                    // 셀 값을 정리된 형식으로 재구성
+                                    var formattedValues = cropDetails.Select(cd => 
+                                        string.IsNullOrEmpty(cd.pillCode) 
+                                            ? $"{cd.cropName} ({cd.probability:F2})"
+                                            : $"{cd.cropName} ({cd.probability:F2}, {cd.pillCode})"
+                                    ).ToList();
+                                    
+                                    cell.Value = string.Join("\n", formattedValues);
+                                    cell.Style.WrapText = true;
+                                    cell.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                                    
+                                    // 이미지 삽입
+                                    foreach (var (cropName, prob, pillCode) in cropDetails)
+                                    {
+                                        string imagePath = FindCropImage(croppedDir, cropName);
+                                        if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                                        {
+                                            try
+                                            {
+                                                using (var originalImage = new Bitmap(imagePath))
+                                                {
+                                                    int originalWidth = originalImage.Width;
+                                                    int originalHeight = originalImage.Height;
+                                                    int newWidth = originalWidth / 4;
+                                                    int newHeight = originalHeight / 4;
                                                 
-                                                totalImageHeight += newHeight + imageSpacing;
-                                                imageIndex++;
-                                                totalCropImages++;
+                                                    FileInfo imageFile = new FileInfo(imagePath);
+                                                    var excelImage = worksheet.Drawings.AddPicture(
+                                                        $"img_{row}_{col}_{imageIndex}",
+                                                        imageFile);
+
+                                                    excelImage.SetPosition(row, totalImageHeight, col, 0);
+                                                    excelImage.SetSize(newWidth, newHeight);
+                                                    
+                                                    totalImageHeight += newHeight + imageSpacing;
+                                                    imageIndex++;
+                                                    totalCropImages++;
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                AppendOutput($"경고: 이미지 삽입 실패 ({cropName}): {ex.Message}\r\n");
+                                                missingCropImages++;
                                             }
                                         }
-                                        catch (Exception ex)
+                                        else
                                         {
-                                            AppendOutput($"경고: 이미지 삽입 실패 ({cropName}): {ex.Message}\r\n");
+                                            AppendOutput($"경고: cropped 이미지를 찾을 수 없음: {cropName}\r\n");
                                             missingCropImages++;
                                         }
                                     }
-                                    else
+                                    
+                                    if (totalImageHeight > 0)
                                     {
-                                        AppendOutput($"경고: cropped 이미지를 찾을 수 없음: {cropName}\r\n");
-                                        missingCropImages++;
+                                        worksheet.Row(row + 1).Height = Math.Max(worksheet.Row(row + 1).Height, totalImageHeight + 40);
                                     }
                                 }
-                                
-                                // 셀 높이를 이미지 높이에 맞게 조정
-                                if (totalImageHeight > 0)
-                                {
-                                    worksheet.Row(row + 1).Height = Math.Max(worksheet.Row(row + 1).Height, totalImageHeight + 40);
-                                }
+                            }
+
+                            // 진행 상황 표시
+                            if (row % 10 == 0)
+                            {
+                                AppendOutput($"진행 중: {row}/{totalRows - 1} 행 처리 완료\r\n");
                             }
                         }
+                        AppendOutput($"Cropped 이미지 삽입 완료: {totalCropImages}개, 누락: {missingCropImages}개\r\n");
 
-                        // 진행 상황 표시
-                        if (row % 10 == 0)
-                        {
-                            AppendOutput($"진행 중: {row}/{totalRows - 1} 행 처리 완료\r\n");
-                        }
-                    }
-                    AppendOutput($"Cropped 이미지 삽입 완료: {totalCropImages}개, 누락: {missingCropImages}개\r\n");
-
-                    // 파일 저장
-                    FileInfo excelFile = new FileInfo(excelPath);
-                    package.SaveAs(excelFile);//<-
-                    excelSuccess = true;
+                        FileInfo excelFile = new FileInfo(excelPath);
+                        package.SaveAs(excelFile);
+                        excelSuccess = true;
                     }
                 });
 
@@ -1344,7 +1117,6 @@ namespace Test_JHNT
             {
                 string? line;
                 StringBuilder recordBuilder = new StringBuilder();
-                int logicalLineNumber = 0;
 
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -1375,8 +1147,6 @@ namespace Test_JHNT
                     if (string.IsNullOrWhiteSpace(record))
                         continue;
 
-                    logicalLineNumber++;
-
                     // CSV 파싱 (따옴표/쉼표/내부 줄바꿈 처리)
                     List<string> fields = ParseCsvLine(record);
                     data.Add(fields.ToArray());
@@ -1406,7 +1176,7 @@ namespace Test_JHNT
             {
                 if (text[i] == '"')
                 {
-                    // 이스케이프된 따옴표 ("")는 두 개가 하나의 실제 따옴표이므로
+                    // 이스케이프된 따옴표 (“”)는 두 개가 하나의 실제 따옴표이므로
                     // 개수 측면에서는 그대로 2개로 세도 짝수/홀수 판별에는 문제가 없다.
                     quoteCount++;
                 }
@@ -1475,7 +1245,7 @@ namespace Test_JHNT
             
             // 작은따옴표(') 제거
             cleanName = cleanName.TrimStart('\'');
-            
+
             // 백틱(`) 제거
             cleanName = cleanName.TrimStart('`');
             
@@ -1497,6 +1267,7 @@ namespace Test_JHNT
             List<string> cropNames = new List<string>();
             
             // 셀 값 형식: "img_1_10 (0.70)" 또는 "img_1_10 (0.70, best_name)"
+            // 또는 "img_1_10 (0.00, 06730081)" - 확률과 약 코드 포함
             // 여러 개는 줄바꿈으로 구분
             string[] lines = cellValue.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             
@@ -1520,6 +1291,56 @@ namespace Test_JHNT
             }
 
             return cropNames;
+        }
+
+        /// <summary>
+        /// 셀 값에서 확률과 약 정보를 추출하는 메서드 추가
+        /// </summary>
+        private List<(string cropName, float probability, string pillCode)> ExtractCropNamesWithDetails(string cellValue)
+        {
+            List<(string, float, string)> results = new List<(string, float, string)>();
+            
+            // 셀 값 형식: "img_1_10 (0.70, 06730081)"
+            string[] lines = cellValue.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            
+            foreach (string line in lines)
+            {
+                string trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine))
+                    continue;
+                
+                // "img_1_10 (0.00, 06730081)" 형식 파싱
+                // 정규식: 이미지명 (확률, 약코드) 형식 추출
+                Match match = Regex.Match(trimmedLine, @"^([^\(]+)\s*\(\s*([\d.]+)\s*,\s*([^\)]+)\s*\)");
+                if (match.Success)
+                {
+                    string cropName = match.Groups[1].Value.Trim();
+                    string probStr = match.Groups[2].Value.Trim();
+                    string pillCode = match.Groups[3].Value.Trim();
+                    
+                    if (float.TryParse(probStr, out float probability))
+                    {
+                        results.Add((cropName, probability, pillCode));
+                    }
+                }
+                else
+                {
+                    // 약 코드가 없는 경우
+                    Match match2 = Regex.Match(trimmedLine, @"^([^\(]+)\s*\(\s*([\d.]+)\s*\)");
+                    if (match2.Success)
+                    {
+                        string cropName = match2.Groups[1].Value.Trim();
+                        string probStr = match2.Groups[2].Value.Trim();
+                        
+                        if (float.TryParse(probStr, out float probability))
+                        {
+                            results.Add((cropName, probability, ""));
+                        }
+                    }
+                }
+            }
+
+            return results;
         }
 
         private string FindPrescriptionImage(string prescriptionDir, string prescriptionName)
@@ -1645,6 +1466,220 @@ namespace Test_JHNT
             }
 
             return null;
+        }
+
+        private void buttonSelectPills_Click(object sender, EventArgs e)
+        {
+            if (panelPillSelection.Visible)
+            {
+                // 패널 숨기기
+                panelPillSelection.Visible = false;
+                textBoxOutput.Size = new System.Drawing.Size(1016, 382);
+                AppendOutput("\r\n약 선택 패널 닫음\r\n");
+            }
+            else
+            {
+                // 약 목록 로드 및 패널 표시
+                LoadPillsFromDatasets();
+                panelPillSelection.Visible = true;
+                textBoxOutput.Size = new System.Drawing.Size(766, 382);
+                AppendOutput($"\r\n약 선택 패널 열음 - 총 {checkedListBoxPills.Items.Count}개 약물\r\n");
+            }
+        }
+
+        /// <summary>
+        /// datasets 폴더에서 약 목록을 로드하여 CheckedListBox에 추가
+        /// 각 약의 이미지 개수도 함께 카운트
+        /// </summary>
+        private void LoadPillsFromDatasets()
+        {
+            try
+            {
+                checkedListBoxPills.Items.Clear();
+                pillImageCounts.Clear();
+                
+                if (!Directory.Exists(datasetsDir))
+                {
+                    AppendOutput($"오류: datasets 폴더를 찾을 수 없습니다: {datasetsDir}\r\n");
+                    return;
+                }
+                
+                // datasets 폴더의 모든 서브폴더 (약 폴더) 가져오기
+                var pillFolders = Directory.GetDirectories(datasetsDir)
+                    .Select(path => Path.GetFileName(path))
+                    .OrderBy(name => name)
+                    .ToList();
+                
+                if (pillFolders.Count == 0)
+                {
+                    AppendOutput($"datasets 폴더에 약 폴더가 없습니다: {datasetsDir}\r\n");
+                    return;
+                }
+                
+                // 각 약 폴더에서 이미지 개수 카운트
+                foreach (var pillName in pillFolders)
+                {
+                    string pillPath = Path.Combine(datasetsDir, pillName);
+                    int imageCount = 0;
+                    
+                    try
+                    {
+                        // 이미지 파일 개수 세기 (.bmp, .jpg, .jpeg, .png)
+                        var imageFiles = Directory.GetFiles(pillPath, "*.*")
+                            .Where(f => f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase) ||
+                                       f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                       f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                       f.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                        
+                        imageCount = imageFiles.Count;
+                        pillImageCounts[pillName] = imageCount;
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"경고: {pillName} 폴더에서 이미지 개수 계산 실패 - {ex.Message}\r\n");
+                        pillImageCounts[pillName] = 0;
+                    }
+                }
+                
+                // CheckedListBox에 약 목록 추가 (이미지 개수 포함)
+                foreach (var pillName in pillFolders)
+                {
+                    int count = pillImageCounts.ContainsKey(pillName) ? pillImageCounts[pillName] : 0;
+                    string displayName = $"{pillName}({count})";
+                    bool isChecked = selectedPills.Contains(pillName);
+                    checkedListBoxPills.Items.Add(displayName, isChecked);
+                }
+                
+                AppendOutput($"약 목록 로드 완료: {pillFolders.Count}개\r\n");
+                UpdatePillCountLabel();
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"약 목록 로드 중 오류: {ex.Message}\r\n");
+            }
+        }
+
+        /// <summary>
+        /// CheckedListBox의 항목 선택 상태 변경 이벤트
+        /// 실시간으로 선택 상태를 업데이트하고 파일에 저장
+        /// </summary>
+        private void checkedListBoxPills_ItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            // 항목 상태 변경 후 업데이트
+            this.BeginInvoke(new Action(() =>
+            {
+                UpdateSelectedPills();
+                SaveSelectedPillsList();
+            }));
+        }
+
+        /// <summary>
+        /// 선택된 약 목록 업데이트
+        /// CheckedListBox의 표시명에서 실제 약 이름 추출
+        /// </summary>
+        private void UpdateSelectedPills()
+        {
+            selectedPills.Clear();
+            
+            foreach (var item in checkedListBoxPills.CheckedItems)
+            {
+                string displayName = item.ToString();
+                
+                // "약이름(갯수)" 형식에서 약이름만 추출
+                int parenIndex = displayName.LastIndexOf('(');
+                if (parenIndex > 0)
+                {
+                    string pillName = displayName.Substring(0, parenIndex).Trim();
+                    selectedPills.Add(pillName);
+                }
+                else
+                {
+                    // 괄호가 없으면 전체 문자열 사용
+                    selectedPills.Add(displayName);
+                }
+            }
+            UpdatePillCountLabel();
+        }
+
+        /// <summary>
+        /// 선택된 약 개수 레이블 업데이트
+        /// </summary>
+        private void UpdatePillCountLabel()
+        {
+            labelPillCount.Text = $"선택된 약: {selectedPills.Count}개";
+        }
+
+        /// <summary>
+        /// 선택된 약 목록을 pill_list.txt에 실시간으로 저장
+        /// 형식: 약 코드만 (예: 06710032)
+        /// </summary>
+        private void SaveSelectedPillsList()
+        {
+            try
+            {
+                if (!Directory.Exists(traysDir))
+                {
+                    Directory.CreateDirectory(traysDir);
+                }
+
+                string pillListPath = Path.Combine(traysDir, "pill_list.txt");
+
+                // UTF-8 BOM 없음으로 파일 작성
+                // 주의: 괄호 안의 개수는 제거하고 순수 약 코드만 저장
+                using (var writer = new StreamWriter(pillListPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                {
+                    foreach (var pill in selectedPills)
+                    {
+                        // 혹시 괄호가 포함된 형식이면 제거
+                        string cleanPill = pill;
+                        int parenIndex = cleanPill.IndexOf('(');
+                        if (parenIndex > 0)
+                        {
+                            cleanPill = cleanPill.Substring(0, parenIndex).Trim();
+                        }
+
+                        writer.WriteLine(cleanPill);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"⚠ 약 목록 저장 중 오류: {ex.Message}\r\n");
+            }
+        }
+
+        private int[] GetAvailableTrayRanges()
+        {
+            try
+            {
+                if (!Directory.Exists(traysDir))
+                    return new int[] { };
+
+                var trayFiles = Directory.GetFiles(traysDir, "*.bmp")
+                    .Where(f => !Path.GetFileName(f).Contains("pill_list"))
+                    .OrderBy(f => f)
+                    .ToList();
+
+                // 30개 트레이면 1~30 배열 생성
+                int[] ranges = new int[trayFiles.Count];
+                for (int i = 0; i < trayFiles.Count; i++)
+                {
+                    ranges[i] = i + 1;  // 1, 2, 3, ..., 30
+                }
+
+                AppendOutput($"✓ 감지된 트레이 파일: {trayFiles.Count}개\r\n");
+                foreach (var file in trayFiles)
+                {
+                    AppendOutput($"  - {Path.GetFileName(file)}\r\n");
+                }
+
+                return ranges;
+            }
+            catch
+            {
+                return new int[] { };
+            }
         }
     }
 }
