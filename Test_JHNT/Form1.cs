@@ -1919,9 +1919,24 @@ namespace Test_JHNT
             try
             {
                 buttonDetectPill.Enabled = false;
-                AppendOutput("약 검출 프로세스 시작\r\n");
+                AppendOutput("=== 약 검출 프로세스 시작 ===\r\n");
 
-                // 1. BMP 이미지 선택
+                // 🆕 Step 1: 검출할 약품 선택
+                AppendOutput("\r\n[단계 1/5] 검출할 약품 선택 중...\r\n");
+                var selectedPills = ShowPillSelectionDialog();
+
+                if (selectedPills == null || selectedPills.Count == 0)
+                {
+                    AppendOutput("약품 선택이 취소되었습니다.\r\n");
+                    return;
+                }
+
+                // 🆕 Step 2: pill_list.txt 저장
+                AppendOutput("\r\n[단계 2/5] pill_list.txt 생성 중...\r\n");
+                SavePillListToFile(selectedPills);
+
+                // Step 3: BMP 이미지 선택
+                AppendOutput("\r\n[단계 3/5] 검출할 이미지 선택 중...\r\n");
                 using (OpenFileDialog openFileDialog = new OpenFileDialog())
                 {
                     openFileDialog.Title = "검출할 약 이미지 선택";
@@ -1932,7 +1947,7 @@ namespace Test_JHNT
 
                     if (openFileDialog.ShowDialog() != DialogResult.OK)
                     {
-                        AppendOutput("약 검출이 취소되었습니다.\r\n");
+                        AppendOutput("이미지 선택이 취소되었습니다.\r\n");
                         return;
                     }
 
@@ -1941,11 +1956,10 @@ namespace Test_JHNT
                     AppendOutput($"선택된 이미지: {Path.GetFileName(selectedImagePath)}\r\n");
                     AppendOutput($"경로: {selectedImagePath}\r\n");
 
-                    // 2. 이미지를 tray1.bmp로 복사
+                    // Step 4: 이미지를 tray1.bmp로 복사
                     string tray1Path = Path.Combine(traysDir, "tray1.bmp");
                     try
                     {
-                        // 원본 이미지 정보 표시
                         using (var img = Image.FromFile(selectedImagePath))
                         {
                             AppendOutput($"이미지 크기: {img.Width} x {img.Height} px\r\n");
@@ -1955,7 +1969,6 @@ namespace Test_JHNT
                         File.Copy(selectedImagePath, tray1Path, overwrite: true);
                         AppendOutput($"이미지 준비 완료\r\n");
 
-                        // 선택한 이미지를 pictureBoxTray1에 표시
                         DisplaySelectedImage(selectedImagePath);
                     }
                     catch (Exception ex)
@@ -1966,9 +1979,9 @@ namespace Test_JHNT
 
                     stopwatch.Start();
                     DateTime detectionStartTime = DateTime.Now;
-                    AppendOutput($"\r\n처리 시작 시간: {detectionStartTime:yyyy-MM-dd HH:mm:ss.fff}\r\n");
+                    AppendOutput($"\r\n[단계 4/5] 처리 시작 시간: {detectionStartTime:yyyy-MM-dd HH:mm:ss.fff}\r\n");
 
-                    // 3. 자동 파이프라인 실행
+                    // Step 5: 자동 파이프라인 실행
                     bool success = await ExecuteDetectionPipeline();
 
                     stopwatch.Stop();
@@ -1980,16 +1993,26 @@ namespace Test_JHNT
                         return;
                     }
 
-                    // 4. 결과 표시
+                    // Step 6: 결과 표시
+                    AppendOutput("\r\n[단계 5/5] 결과 분석 및 저장 중...\r\n");
                     await DisplayDetectionResults();
 
-                    // 5. Excel 파일 생성 (새로 추가)
+                    // Step 7: Excel 파일 생성
                     AppendOutput($"\r\n검출 결과를 Excel 파일로 저장 중...\r\n");
                     await CreateDetectionExcelReport(selectedImagePath, originalFileName, detectionStartTime, stopwatch.Elapsed);
 
-                    AppendOutput($"약 검출 프로세스 완료!\r\n");
+                    AppendOutput($"\r\n=== 약 검출 프로세스 완료! ===\r\n");
                     AppendOutput($"총 소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초 ({stopwatch.ElapsedMilliseconds}ms)\r\n");
                     AppendOutput($"종료 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
+
+                    MessageBox.Show(
+                        $"약 검출 완료!\r\n\r\n" +
+                        $"선택 약품: {selectedPills.Count}개\r\n" +
+                        $"처리 시간: {stopwatch.Elapsed.TotalSeconds:F2}초\r\n" +
+                        $"결과 파일: {resultDir}",
+                        "검출 완료",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
@@ -2001,6 +2024,12 @@ namespace Test_JHNT
                 {
                     AppendOutput($"실행 시간: {stopwatch.Elapsed.TotalSeconds:F2}초\r\n");
                 }
+
+                MessageBox.Show(
+                    $"오류 발생:\r\n{ex.Message}",
+                    "오류",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             finally
             {
@@ -2634,5 +2663,210 @@ namespace Test_JHNT
 
             return sanitized;
         }
+
+
+        private List<string> ShowPillSelectionDialog()
+        {
+            if (!Directory.Exists(datasetsDir))
+            {
+                AppendOutput($"오류: datasets 폴더를 찾을 수 없습니다: {datasetsDir}\r\n");
+                return null;
+            }
+
+            // datasets 폴더에서 서브폴더 목록 가져오기
+            var allPills = Directory.GetDirectories(datasetsDir)
+                .Select(d => Path.GetFileName(d))
+                .OrderBy(name => name)
+                .ToList();
+
+            if (allPills.Count == 0)
+            {
+                AppendOutput("오류: 등록된 약품이 없습니다.\r\n");
+                MessageBox.Show("등록된 약품이 없습니다.\r\n먼저 약품을 등록해주세요.",
+                               "약품 없음",
+                               MessageBoxButtons.OK,
+                               MessageBoxIcon.Warning);
+                return null;
+            }
+
+            using (Form selectionForm = new Form())
+            {
+                selectionForm.Text = "검출할 약품 선택";
+                selectionForm.Width = 500;
+                selectionForm.Height = 600;
+                selectionForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                selectionForm.StartPosition = FormStartPosition.CenterParent;
+                selectionForm.MaximizeBox = false;
+                selectionForm.MinimizeBox = false;
+
+                // 안내 레이블
+                Label lblInfo = new Label
+                {
+                    Text = $"검출할 약품을 선택하세요 (총 {allPills.Count}개):",
+                    Left = 10,
+                    Top = 10,
+                    Width = 460,
+                    Height = 20,
+                    Font = new Font("맑은 고딕", 9F, FontStyle.Bold)
+                };
+
+                // 체크박스 리스트
+                CheckedListBox checkedListBox = new CheckedListBox
+                {
+                    Left = 10,
+                    Top = 40,
+                    Width = 460,
+                    Height = 420,
+                    CheckOnClick = true,
+                    Font = new Font("맑은 고딕", 9F)
+                };
+
+                foreach (var pill in allPills)
+                {
+                    checkedListBox.Items.Add(pill, false);
+                }
+
+                // 전체 선택/해제 버튼
+                Button btnSelectAll = new Button
+                {
+                    Text = "전체 선택",
+                    Left = 10,
+                    Top = 470,
+                    Width = 100,
+                    Height = 30
+                };
+                btnSelectAll.Click += (s, e) =>
+                {
+                    for (int i = 0; i < checkedListBox.Items.Count; i++)
+                    {
+                        checkedListBox.SetItemChecked(i, true);
+                    }
+                };
+
+                Button btnDeselectAll = new Button
+                {
+                    Text = "전체 해제",
+                    Left = 120,
+                    Top = 470,
+                    Width = 100,
+                    Height = 30
+                };
+                btnDeselectAll.Click += (s, e) =>
+                {
+                    for (int i = 0; i < checkedListBox.Items.Count; i++)
+                    {
+                        checkedListBox.SetItemChecked(i, false);
+                    }
+                };
+
+                // 확인/취소 버튼
+                Button btnOk = new Button
+                {
+                    Text = "확인",
+                    Left = 280,
+                    Top = 510,
+                    Width = 90,
+                    Height = 35,
+                    DialogResult = DialogResult.OK,
+                    Font = new Font("맑은 고딕", 9F, FontStyle.Bold)
+                };
+
+                Button btnCancel = new Button
+                {
+                    Text = "취소",
+                    Left = 380,
+                    Top = 510,
+                    Width = 90,
+                    Height = 35,
+                    DialogResult = DialogResult.Cancel
+                };
+
+                // 선택된 개수 표시 레이블
+                Label lblCount = new Label
+                {
+                    Text = "선택: 0개",
+                    Left = 10,
+                    Top = 515,
+                    Width = 200,
+                    Height = 25,
+                    Font = new Font("맑은 고딕", 9F),
+                    ForeColor = Color.Blue
+                };
+
+                checkedListBox.ItemCheck += (s, e) =>
+                {
+                    // ItemCheck 이벤트는 체크 상태가 변경되기 전에 발생하므로 BeginInvoke 사용
+                    selectionForm.BeginInvoke(new Action(() =>
+                    {
+                        int count = checkedListBox.CheckedItems.Count;
+                        lblCount.Text = $"선택: {count}개";
+                    }));
+                };
+
+                selectionForm.Controls.Add(lblInfo);
+                selectionForm.Controls.Add(checkedListBox);
+                selectionForm.Controls.Add(btnSelectAll);
+                selectionForm.Controls.Add(btnDeselectAll);
+                selectionForm.Controls.Add(lblCount);
+                selectionForm.Controls.Add(btnOk);
+                selectionForm.Controls.Add(btnCancel);
+                selectionForm.AcceptButton = btnOk;
+                selectionForm.CancelButton = btnCancel;
+
+                DialogResult result = selectionForm.ShowDialog();
+
+                if (result == DialogResult.OK)
+                {
+                    var selectedPills = new List<string>();
+                    foreach (var item in checkedListBox.CheckedItems)
+                    {
+                        selectedPills.Add(item.ToString());
+                    }
+
+                    if (selectedPills.Count == 0)
+                    {
+                        MessageBox.Show("약품을 1개 이상 선택해주세요.",
+                                       "선택 필요",
+                                       MessageBoxButtons.OK,
+                                       MessageBoxIcon.Warning);
+                        return null;
+                    }
+
+                    return selectedPills;
+                }
+
+                return null;
+            }
+        }
+
+        private void SavePillListToFile(List<string> selectedPills)
+        {
+            string pillListPath = Path.Combine(traysDir, "pill_list.txt");
+
+            try
+            {
+                using (var writer = new StreamWriter(pillListPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                {
+                    foreach (var pill in selectedPills)
+                    {
+                        writer.WriteLine(pill);
+                    }
+                }
+
+                AppendOutput($"pill_list.txt 저장 완료: {pillListPath}\r\n");
+                AppendOutput($"선택된 약품 {selectedPills.Count}개:\r\n");
+                foreach (var pill in selectedPills)
+                {
+                    AppendOutput($"  - {pill}\r\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"오류: pill_list.txt 저장 실패 - {ex.Message}\r\n");
+                throw;
+            }
+        }
     }
+
+
 }
