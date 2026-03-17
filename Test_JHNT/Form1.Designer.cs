@@ -10,6 +10,8 @@ namespace Test_JHNT
         private System.Windows.Forms.Button buttonCreateExcel;
         private System.Windows.Forms.Button buttonTrayImage;
         private System.Windows.Forms.Button buttonTray1Polygon;
+        private System.Windows.Forms.Button buttonRegisterPill;
+        private System.Windows.Forms.Button buttonDetectPill;
         private System.Windows.Forms.PictureBox pictureBoxTray1;
         private System.Windows.Forms.PictureBox pictureBoxTray2;
         private System.Windows.Forms.FlowLayoutPanel flowLayoutPanelTray1Polygons;
@@ -26,150 +28,205 @@ namespace Test_JHNT
 
         private void InitializeComponent()
         {
-            this.buttonPrewarm = new System.Windows.Forms.Button();
-            this.buttonGenerateTrays = new System.Windows.Forms.Button();
-            this.buttonPrescriptionMasks = new System.Windows.Forms.Button();
-            this.buttonRun = new System.Windows.Forms.Button();
-            this.buttonCreateExcel = new System.Windows.Forms.Button();
-            this.buttonTrayImage = new System.Windows.Forms.Button();
-            this.buttonTray1Polygon = new System.Windows.Forms.Button();
-            this.pictureBoxTray1 = new System.Windows.Forms.PictureBox();
-            this.pictureBoxTray2 = new System.Windows.Forms.PictureBox();
-            this.flowLayoutPanelTray1Polygons = new System.Windows.Forms.FlowLayoutPanel();
-            this.textBoxOutput = new System.Windows.Forms.TextBox();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBoxTray1)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBoxTray2)).BeginInit();
-            this.SuspendLayout();
-
+            buttonPrewarm = new Button();
+            buttonGenerateTrays = new Button();
+            buttonPrescriptionMasks = new Button();
+            buttonRun = new Button();
+            buttonCreateExcel = new Button();
+            buttonTrayImage = new Button();
+            buttonTray1Polygon = new Button();
+            buttonRegisterPill = new Button();
+            buttonDetectPill = new Button();
+            pictureBoxTray1 = new PictureBox();
+            pictureBoxTray2 = new PictureBox();
+            flowLayoutPanelTray1Polygons = new FlowLayoutPanel();
+            textBoxOutput = new TextBox();
+            ((System.ComponentModel.ISupportInitialize)pictureBoxTray1).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)pictureBoxTray2).BeginInit();
+            SuspendLayout();
+            // 
             // buttonPrewarm
-            this.buttonPrewarm.Location = new System.Drawing.Point(12, 68);
-            this.buttonPrewarm.Name = "buttonPrewarm";
-            this.buttonPrewarm.Size = new System.Drawing.Size(180, 50);
-            this.buttonPrewarm.TabIndex = 1;
-            this.buttonPrewarm.Text = "사전 준비";
-            this.buttonPrewarm.UseVisualStyleBackColor = true;
-            this.buttonPrewarm.Click += new System.EventHandler(this.buttonPrewarm_Click);
-
+            // 
+            buttonPrewarm.Enabled = false;
+            buttonPrewarm.Location = new Point(15, 113);
+            buttonPrewarm.Margin = new Padding(4, 5, 4, 5);
+            buttonPrewarm.Name = "buttonPrewarm";
+            buttonPrewarm.Size = new Size(231, 83);
+            buttonPrewarm.TabIndex = 1;
+            buttonPrewarm.Text = "사전 준비";
+            buttonPrewarm.UseVisualStyleBackColor = true;
+            buttonPrewarm.Click += buttonPrewarm_Click;
+            // 
             // buttonGenerateTrays
-            this.buttonGenerateTrays.Location = new System.Drawing.Point(12, 12);
-            this.buttonGenerateTrays.Name = "buttonGenerateTrays";
-            this.buttonGenerateTrays.Size = new System.Drawing.Size(180, 50);
-            this.buttonGenerateTrays.TabIndex = 0;
-            this.buttonGenerateTrays.Text = "트레이 생성";
-            this.buttonGenerateTrays.UseVisualStyleBackColor = true;
-            this.buttonGenerateTrays.Click += new System.EventHandler(this.buttonGenerateTrays_Click);
-
+            // 
+            buttonGenerateTrays.Enabled = false;
+            buttonGenerateTrays.Location = new Point(15, 20);
+            buttonGenerateTrays.Margin = new Padding(4, 5, 4, 5);
+            buttonGenerateTrays.Name = "buttonGenerateTrays";
+            buttonGenerateTrays.Size = new Size(231, 83);
+            buttonGenerateTrays.TabIndex = 0;
+            buttonGenerateTrays.Text = "트레이 생성";
+            buttonGenerateTrays.UseVisualStyleBackColor = true;
+            buttonGenerateTrays.Click += buttonGenerateTrays_Click;
+            // 
             // buttonPrescriptionMasks
-            this.buttonPrescriptionMasks.Location = new System.Drawing.Point(198, 68);
-            this.buttonPrescriptionMasks.Name = "buttonPrescriptionMasks";
-            this.buttonPrescriptionMasks.Size = new System.Drawing.Size(180, 50);
-            this.buttonPrescriptionMasks.TabIndex = 2;
-            this.buttonPrescriptionMasks.Text = "처방 마스크 생성";
-            this.buttonPrescriptionMasks.UseVisualStyleBackColor = true;
-            this.buttonPrescriptionMasks.Click += new System.EventHandler(this.buttonPrescriptionMasks_Click);
-
+            // 
+            buttonPrescriptionMasks.Enabled = false;
+            buttonPrescriptionMasks.Location = new Point(255, 113);
+            buttonPrescriptionMasks.Margin = new Padding(4, 5, 4, 5);
+            buttonPrescriptionMasks.Name = "buttonPrescriptionMasks";
+            buttonPrescriptionMasks.Size = new Size(231, 83);
+            buttonPrescriptionMasks.TabIndex = 2;
+            buttonPrescriptionMasks.Text = "처방 마스크 생성";
+            buttonPrescriptionMasks.UseVisualStyleBackColor = true;
+            buttonPrescriptionMasks.Click += buttonPrescriptionMasks_Click;
+            // 
             // buttonRun
-            this.buttonRun.Location = new System.Drawing.Point(384, 68);
-            this.buttonRun.Name = "buttonRun";
-            this.buttonRun.Size = new System.Drawing.Size(180, 50);
-            this.buttonRun.TabIndex = 3;
-            this.buttonRun.Text = "추론 실행";
-            this.buttonRun.UseVisualStyleBackColor = true;
-            this.buttonRun.Click += new System.EventHandler(this.buttonRun_Click);
-
+            // 
+            buttonRun.Enabled = false;
+            buttonRun.Location = new Point(494, 113);
+            buttonRun.Margin = new Padding(4, 5, 4, 5);
+            buttonRun.Name = "buttonRun";
+            buttonRun.Size = new Size(231, 83);
+            buttonRun.TabIndex = 3;
+            buttonRun.Text = "추론 실행";
+            buttonRun.UseVisualStyleBackColor = true;
+            buttonRun.Click += buttonRun_Click;
+            // 
             // buttonCreateExcel
-            this.buttonCreateExcel.Location = new System.Drawing.Point(570, 68);
-            this.buttonCreateExcel.Name = "buttonCreateExcel";
-            this.buttonCreateExcel.Size = new System.Drawing.Size(180, 50);
-            this.buttonCreateExcel.TabIndex = 4;
-            this.buttonCreateExcel.Text = "Excel 파일 생성";
-            this.buttonCreateExcel.UseVisualStyleBackColor = true;
-            this.buttonCreateExcel.Click += new System.EventHandler(this.buttonCreateExcel_Click);
-
+            // 
+            buttonCreateExcel.Enabled = false;
+            buttonCreateExcel.Location = new Point(733, 113);
+            buttonCreateExcel.Margin = new Padding(4, 5, 4, 5);
+            buttonCreateExcel.Name = "buttonCreateExcel";
+            buttonCreateExcel.Size = new Size(231, 83);
+            buttonCreateExcel.TabIndex = 4;
+            buttonCreateExcel.Text = "Excel 파일 생성";
+            buttonCreateExcel.UseVisualStyleBackColor = true;
+            buttonCreateExcel.Click += buttonCreateExcel_Click;
+            // 
             // buttonTrayImage
-            this.buttonTrayImage.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.buttonTrayImage.Location = new System.Drawing.Point(760, 12);
-            this.buttonTrayImage.Name = "buttonTrayImage";
-            this.buttonTrayImage.Size = new System.Drawing.Size(100, 24);
-            this.buttonTrayImage.TabIndex = 6;
-            this.buttonTrayImage.Text = "tray 이미지";
-            this.buttonTrayImage.UseVisualStyleBackColor = true;
-            this.buttonTrayImage.Click += new System.EventHandler(this.buttonTrayImage_Click);
-
+            // 
+            buttonTrayImage.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            buttonTrayImage.Location = new Point(977, 20);
+            buttonTrayImage.Margin = new Padding(4, 5, 4, 5);
+            buttonTrayImage.Name = "buttonTrayImage";
+            buttonTrayImage.Size = new Size(129, 40);
+            buttonTrayImage.TabIndex = 6;
+            buttonTrayImage.Text = "tray 이미지";
+            buttonTrayImage.UseVisualStyleBackColor = true;
+            buttonTrayImage.Click += buttonTrayImage_Click;
+            // 
             // buttonTray1Polygon
-            this.buttonTray1Polygon.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.buttonTray1Polygon.Location = new System.Drawing.Point(760, 320);
-            this.buttonTray1Polygon.Name = "buttonTray1Polygon";
-            this.buttonTray1Polygon.Size = new System.Drawing.Size(100, 24);
-            this.buttonTray1Polygon.TabIndex = 9;
-            this.buttonTray1Polygon.Text = "Tray1 polygon";
-            this.buttonTray1Polygon.UseVisualStyleBackColor = true;
-            this.buttonTray1Polygon.Click += new System.EventHandler(this.buttonTray1Polygon_Click);
-
-            // flowLayoutPanelTray1Polygons
-            this.flowLayoutPanelTray1Polygons.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.flowLayoutPanelTray1Polygons.AutoScroll = true;
-            this.flowLayoutPanelTray1Polygons.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.flowLayoutPanelTray1Polygons.Location = new System.Drawing.Point(760, 346);
-            this.flowLayoutPanelTray1Polygons.Name = "flowLayoutPanelTray1Polygons";
-            this.flowLayoutPanelTray1Polygons.Size = new System.Drawing.Size(220, 92);
-            this.flowLayoutPanelTray1Polygons.TabIndex = 10;
-
+            // 
+            buttonTray1Polygon.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            buttonTray1Polygon.Location = new Point(977, 533);
+            buttonTray1Polygon.Margin = new Padding(4, 5, 4, 5);
+            buttonTray1Polygon.Name = "buttonTray1Polygon";
+            buttonTray1Polygon.Size = new Size(129, 40);
+            buttonTray1Polygon.TabIndex = 9;
+            buttonTray1Polygon.Text = "Tray1 polygon";
+            buttonTray1Polygon.UseVisualStyleBackColor = true;
+            buttonTray1Polygon.Click += buttonTray1Polygon_Click;
+            // 
+            // buttonRegisterPill
+            // 
+            buttonRegisterPill.BackColor = Color.Coral;
+            buttonRegisterPill.Location = new Point(255, 20);
+            buttonRegisterPill.Margin = new Padding(4, 5, 4, 5);
+            buttonRegisterPill.Name = "buttonRegisterPill";
+            buttonRegisterPill.Size = new Size(231, 83);
+            buttonRegisterPill.TabIndex = 11;
+            buttonRegisterPill.Text = "약 등록";
+            buttonRegisterPill.UseVisualStyleBackColor = false;
+            buttonRegisterPill.Click += buttonRegisterPill_Click;
+            // 
+            // buttonDetectPill
+            // 
+            buttonDetectPill.BackColor = Color.LightGreen;
+            buttonDetectPill.Font = new Font("맑은 고딕", 9F, FontStyle.Bold);
+            buttonDetectPill.Location = new Point(494, 20);
+            buttonDetectPill.Margin = new Padding(4, 5, 4, 5);
+            buttonDetectPill.Name = "buttonDetectPill";
+            buttonDetectPill.Size = new Size(231, 83);
+            buttonDetectPill.TabIndex = 12;
+            buttonDetectPill.Text = "약 검출";
+            buttonDetectPill.UseVisualStyleBackColor = false;
+            buttonDetectPill.Click += buttonDetectPill_Click;
+            // 
             // pictureBoxTray1
-            this.pictureBoxTray1.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.pictureBoxTray1.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxTray1.Location = new System.Drawing.Point(760, 38);
-            this.pictureBoxTray1.Name = "pictureBoxTray1";
-            this.pictureBoxTray1.Size = new System.Drawing.Size(220, 135);
-            this.pictureBoxTray1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.pictureBoxTray1.TabIndex = 7;
-            this.pictureBoxTray1.TabStop = false;
-
+            // 
+            pictureBoxTray1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            pictureBoxTray1.BorderStyle = BorderStyle.FixedSingle;
+            pictureBoxTray1.Location = new Point(977, 63);
+            pictureBoxTray1.Margin = new Padding(4, 5, 4, 5);
+            pictureBoxTray1.Name = "pictureBoxTray1";
+            pictureBoxTray1.Size = new Size(282, 224);
+            pictureBoxTray1.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBoxTray1.TabIndex = 7;
+            pictureBoxTray1.TabStop = false;
+            // 
             // pictureBoxTray2
-            this.pictureBoxTray2.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.pictureBoxTray2.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxTray2.Location = new System.Drawing.Point(760, 179);
-            this.pictureBoxTray2.Name = "pictureBoxTray2";
-            this.pictureBoxTray2.Size = new System.Drawing.Size(220, 135);
-            this.pictureBoxTray2.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.pictureBoxTray2.TabIndex = 8;
-            this.pictureBoxTray2.TabStop = false;
-
+            // 
+            pictureBoxTray2.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            pictureBoxTray2.BorderStyle = BorderStyle.FixedSingle;
+            pictureBoxTray2.Location = new Point(977, 298);
+            pictureBoxTray2.Margin = new Padding(4, 5, 4, 5);
+            pictureBoxTray2.Name = "pictureBoxTray2";
+            pictureBoxTray2.Size = new Size(282, 224);
+            pictureBoxTray2.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBoxTray2.TabIndex = 8;
+            pictureBoxTray2.TabStop = false;
+            // 
+            // flowLayoutPanelTray1Polygons
+            // 
+            flowLayoutPanelTray1Polygons.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right;
+            flowLayoutPanelTray1Polygons.AutoScroll = true;
+            flowLayoutPanelTray1Polygons.BorderStyle = BorderStyle.FixedSingle;
+            flowLayoutPanelTray1Polygons.Location = new Point(977, 577);
+            flowLayoutPanelTray1Polygons.Margin = new Padding(4, 5, 4, 5);
+            flowLayoutPanelTray1Polygons.Name = "flowLayoutPanelTray1Polygons";
+            flowLayoutPanelTray1Polygons.Size = new Size(282, 152);
+            flowLayoutPanelTray1Polygons.TabIndex = 10;
+            // 
             // textBoxOutput
-            this.textBoxOutput.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-            | System.Windows.Forms.AnchorStyles.Left)
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.textBoxOutput.Location = new System.Drawing.Point(12, 124);
-            this.textBoxOutput.Multiline = true;
-            this.textBoxOutput.Name = "textBoxOutput";
-            this.textBoxOutput.ReadOnly = true;
-            this.textBoxOutput.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.textBoxOutput.Size = new System.Drawing.Size(736, 314);
-            this.textBoxOutput.TabIndex = 5;
-            this.textBoxOutput.Font = new System.Drawing.Font("Consolas", 9F);
-
+            // 
+            textBoxOutput.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            textBoxOutput.Font = new Font("Consolas", 9F);
+            textBoxOutput.Location = new Point(15, 207);
+            textBoxOutput.Margin = new Padding(4, 5, 4, 5);
+            textBoxOutput.Multiline = true;
+            textBoxOutput.Name = "textBoxOutput";
+            textBoxOutput.ReadOnly = true;
+            textBoxOutput.ScrollBars = ScrollBars.Vertical;
+            textBoxOutput.Size = new Size(945, 521);
+            textBoxOutput.TabIndex = 5;
+            // 
             // Form1
-            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 12F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1000, 450);
-            this.Controls.Add(this.flowLayoutPanelTray1Polygons);
-            this.Controls.Add(this.pictureBoxTray1);
-            this.Controls.Add(this.pictureBoxTray2);
-            this.Controls.Add(this.buttonTray1Polygon);
-            this.Controls.Add(this.buttonTrayImage);
-            this.Controls.Add(this.textBoxOutput);
-            this.Controls.Add(this.buttonCreateExcel);
-            this.Controls.Add(this.buttonRun);
-            this.Controls.Add(this.buttonPrescriptionMasks);
-            this.Controls.Add(this.buttonGenerateTrays);
-            this.Controls.Add(this.buttonPrewarm);
-            this.Name = "Form1";
-            this.Text = "Prediction Processing";
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBoxTray1)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBoxTray2)).EndInit();
-            this.ResumeLayout(false);
-            this.PerformLayout();
+            // 
+            AutoScaleDimensions = new SizeF(9F, 20F);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(1286, 750);
+            Controls.Add(buttonDetectPill);
+            Controls.Add(flowLayoutPanelTray1Polygons);
+            Controls.Add(pictureBoxTray1);
+            Controls.Add(pictureBoxTray2);
+            Controls.Add(buttonTray1Polygon);
+            Controls.Add(buttonTrayImage);
+            Controls.Add(buttonRegisterPill);
+            Controls.Add(textBoxOutput);
+            Controls.Add(buttonCreateExcel);
+            Controls.Add(buttonRun);
+            Controls.Add(buttonPrescriptionMasks);
+            Controls.Add(buttonGenerateTrays);
+            Controls.Add(buttonPrewarm);
+            Margin = new Padding(4, 5, 4, 5);
+            Name = "Form1";
+            Text = "Prediction Processing";
+            ((System.ComponentModel.ISupportInitialize)pictureBoxTray1).EndInit();
+            ((System.ComponentModel.ISupportInitialize)pictureBoxTray2).EndInit();
+            ResumeLayout(false);
+            PerformLayout();
         }
     }
 }

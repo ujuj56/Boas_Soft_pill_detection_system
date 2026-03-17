@@ -1646,5 +1646,582 @@ namespace Test_JHNT
 
             return null;
         }
+
+
+        private async void buttonRegisterPill_Click(object sender, EventArgs e)
+        {
+            Stopwatch stopwatch = new Stopwatch();
+
+            try
+            {
+                buttonRegisterPill.Enabled = false;
+                AppendOutput("\r\n=== 약 등록 시작 ===\r\n");
+
+                // 1. BMP 이미지 선택
+                using (OpenFileDialog openFileDialog = new OpenFileDialog())
+                {
+                    openFileDialog.Title = "등록할 약 이미지 선택";
+                    openFileDialog.Filter = "BMP 파일 (*.bmp)|*.bmp";
+                    openFileDialog.Multiselect = false;
+
+                    if (openFileDialog.ShowDialog() != DialogResult.OK)
+                    {
+                        AppendOutput("약 등록이 취소되었습니다.\r\n");
+                        return;
+                    }
+
+                    string selectedImagePath = openFileDialog.FileName;
+                    AppendOutput($"선택된 이미지: {selectedImagePath}\r\n");
+
+                    // 2. trays 폴더에 tray1.bmp로 복사
+                    string tray1Path = Path.Combine(traysDir, "tray1.bmp");
+                    try
+                    {
+                        File.Copy(selectedImagePath, tray1Path, overwrite: true);
+                        AppendOutput($"이미지 복사 완료: {tray1Path}\r\n");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"오류: 이미지 복사 실패 - {ex.Message}\r\n");
+                        return;
+                    }
+
+                    stopwatch.Start();
+
+                    // 3. 사전 준비 실행
+                    AppendOutput("\r\n[1/3] 사전 준비 중...\r\n");
+                    int retPrewarm = await Task.Run(() => PrewarmPredictionProcessing());
+                    if (retPrewarm != 0)
+                    {
+                        AppendOutput($"오류: 사전 준비 실패 (반환 코드 {retPrewarm})\r\n");
+                        return;
+                    }
+                    AppendOutput("사전 준비 완료!\r\n");
+
+                    // 4. 처방 마스크 생성
+                    AppendOutput("\r\n[2/3] 처방 마스크 생성 중...\r\n");
+                    int retMask = await Task.Run(() => RunPrescriptionMasksMain());
+                    if (retMask != 0)
+                    {
+                        AppendOutput($"오류: 처방 마스크 생성 실패 (반환 코드 {retMask})\r\n");
+                        return;
+                    }
+                    AppendOutput("처방 마스크 생성 완료!\r\n");
+
+                    // 5. 추론 실행 (tray1만 처리)
+                    AppendOutput("\r\n[3/3] 추론 실행 중...\r\n");
+                    int[] singleTrayRange = { 1, 1 }; // tray1만 처리
+                    int retRun = await Task.Run(() => RunPillDetectionMain(singleTrayRange, 1));
+                    if (retRun != 0)
+                    {
+                        AppendOutput($"오류: 추론 실행 실패 (반환 코드 {retRun})\r\n");
+                        return;
+                    }
+                    AppendOutput("추론 실행 완료!\r\n");
+
+                    stopwatch.Stop();
+                    AppendOutput($"\r\n자동 처리 완료! (소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초)\r\n");
+
+                    // 6. 크롭된 이미지 확인
+                    string croppedDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "cropped");
+                    if (!Directory.Exists(croppedDir))
+                    {
+                        AppendOutput($"오류: cropped 폴더를 찾을 수 없습니다: {croppedDir}\r\n");
+                        return;
+                    }
+
+                    var croppedFiles = Directory.GetFiles(croppedDir, "img_1_*.bmp").OrderBy(f => f).ToList();
+                    if (croppedFiles.Count == 0)
+                    {
+                        AppendOutput("오류: 크롭된 이미지가 없습니다.\r\n");
+                        return;
+                    }
+
+                    AppendOutput($"\r\n크롭된 이미지 {croppedFiles.Count}개 발견!\r\n");
+
+                    // 7. 약 이름 입력 다이얼로그
+                    string pillName = ShowPillNameInputDialog(croppedFiles.Count);
+                    if (string.IsNullOrWhiteSpace(pillName))
+                    {
+                        AppendOutput("약 이름이 입력되지 않았습니다. 등록이 취소되었습니다.\r\n");
+                        return;
+                    }
+
+                    // 8. datasets 폴더에 저장
+                    string pillFolderPath = Path.Combine(datasetsDir, pillName);
+                    if (!Directory.Exists(pillFolderPath))
+                    {
+                        Directory.CreateDirectory(pillFolderPath);
+                        AppendOutput($"폴더 생성: {pillFolderPath}\r\n");
+                    }
+
+                    int savedCount = 0;
+                    for (int i = 0; i < croppedFiles.Count; i++)
+                    {
+                        string destFileName = $"{pillName}_{i}.bmp";
+                        string destPath = Path.Combine(pillFolderPath, destFileName);
+                        try
+                        {
+                            File.Copy(croppedFiles[i], destPath, overwrite: true);
+                            savedCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendOutput($"경고: {destFileName} 저장 실패 - {ex.Message}\r\n");
+                        }
+                    }
+
+                    AppendOutput($"\r\n약 등록 완료!\r\n");
+                    AppendOutput($"약 이름: {pillName}\r\n");
+                    AppendOutput($"저장 경로: {pillFolderPath}\r\n");
+                    AppendOutput($"저장된 이미지: {savedCount}개\r\n");
+                    AppendOutput($"약 등록 완료\r\n");
+
+                    // 9. 등록된 이미지 미리보기 표시 (선택사항)
+                    ShowRegisteredPillsPreview(croppedFiles, pillName);
+                }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                AppendOutput($"\r\n예외 발생: {ex.Message}\r\n");
+                AppendOutput($"스택 트레이스:\r\n{ex.StackTrace}\r\n");
+            }
+            finally
+            {
+                buttonRegisterPill.Enabled = true;
+            }
+        }
+
+
+        // 약 이름 입력 다이얼로그
+        private string ShowPillNameInputDialog(int imageCount)
+        {
+            using (Form inputForm = new Form())
+            {
+                inputForm.Text = "약 이름 입력";
+                inputForm.Width = 400;
+                inputForm.Height = 180;
+                inputForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                inputForm.StartPosition = FormStartPosition.CenterParent;
+                inputForm.MaximizeBox = false;
+                inputForm.MinimizeBox = false;
+
+                Label label = new Label
+                {
+                    Text = $"크롭된 이미지 {imageCount}개가 발견되었습니다.\r\n등록할 약의 이름을 입력하세요:",
+                    Left = 20,
+                    Top = 20,
+                    Width = 350,
+                    Height = 40
+                };
+
+                TextBox textBox = new TextBox
+                {
+                    Left = 20,
+                    Top = 70,
+                    Width = 340,
+                    MaxLength = 100
+                };
+
+                Button buttonOk = new Button
+                {
+                    Text = "확인",
+                    Left = 200,
+                    Width = 80,
+                    Top = 105,
+                    DialogResult = DialogResult.OK
+                };
+
+                Button buttonCancel = new Button
+                {
+                    Text = "취소",
+                    Left = 285,
+                    Width = 75,
+                    Top = 105,
+                    DialogResult = DialogResult.Cancel
+                };
+
+                buttonOk.Click += (sender, e) => { inputForm.Close(); };
+                buttonCancel.Click += (sender, e) => { inputForm.Close(); };
+
+                inputForm.Controls.Add(label);
+                inputForm.Controls.Add(textBox);
+                inputForm.Controls.Add(buttonOk);
+                inputForm.Controls.Add(buttonCancel);
+                inputForm.AcceptButton = buttonOk;
+                inputForm.CancelButton = buttonCancel;
+
+                DialogResult result = inputForm.ShowDialog();
+                return result == DialogResult.OK ? textBox.Text.Trim() : null;
+            }
+        }
+
+        // 등록된 약 미리보기 표시 (선택사항)
+        private void ShowRegisteredPillsPreview(List<string> imagePaths, string pillName)
+        {
+            try
+            {
+                flowLayoutPanelTray1Polygons.Controls.Clear();
+                AppendOutput($"\r\n등록된 약 '{pillName}' 미리보기 표시 중...\r\n");
+
+                foreach (string imagePath in imagePaths)
+                {
+                    string displayName = Path.GetFileNameWithoutExtension(imagePath);
+                    var panel = new Panel { Size = new System.Drawing.Size(200, 120), Margin = new Padding(2) };
+                    var label = new Label
+                    {
+                        Text = $"{pillName}",
+                        AutoSize = false,
+                        Size = new System.Drawing.Size(196, 20),
+                        Location = new System.Drawing.Point(2, 0),
+                        Font = new Font("Consolas", 8F, FontStyle.Bold),
+                        ForeColor = Color.DarkGreen
+                    };
+                    var pb = new PictureBox
+                    {
+                        Size = new System.Drawing.Size(196, 90),
+                        Location = new System.Drawing.Point(2, 22),
+                        SizeMode = PictureBoxSizeMode.Zoom,
+                        BorderStyle = BorderStyle.FixedSingle
+                    };
+
+                    try
+                    {
+                        using (var bmp = new Bitmap(imagePath))
+                        {
+                            pb.Image = new Bitmap(bmp);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"경고: {displayName} 로드 실패 - {ex.Message}\r\n");
+                        continue;
+                    }
+
+                    panel.Controls.Add(label);
+                    panel.Controls.Add(pb);
+                    flowLayoutPanelTray1Polygons.Controls.Add(panel);
+                }
+
+                AppendOutput($"미리보기 표시 완료: {imagePaths.Count}개\r\n");
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"경고: 미리보기 표시 중 오류 - {ex.Message}\r\n");
+            }
+        }
+
+        private async void buttonDetectPill_Click(object sender, EventArgs e)
+        {
+            Stopwatch stopwatch = new Stopwatch();
+
+            try
+            {
+                buttonDetectPill.Enabled = false;
+                AppendOutput("약 검출 프로세스 시작\r\n");
+
+                // 1. BMP 이미지 선택
+                using (OpenFileDialog openFileDialog = new OpenFileDialog())
+                {
+                    openFileDialog.Title = "검출할 약 이미지 선택";
+                    openFileDialog.Filter = "BMP 파일 (*.bmp)|*.bmp|모든 파일 (*.*)|*.*";
+                    openFileDialog.FilterIndex = 1;
+                    openFileDialog.Multiselect = false;
+                    openFileDialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+                    if (openFileDialog.ShowDialog() != DialogResult.OK)
+                    {
+                        AppendOutput("약 검출이 취소되었습니다.\r\n");
+                        return;
+                    }
+
+                    string selectedImagePath = openFileDialog.FileName;
+                    AppendOutput($"선택된 이미지: {Path.GetFileName(selectedImagePath)}\r\n");
+                    AppendOutput($"경로: {selectedImagePath}\r\n");
+
+                    // 2. 이미지를 tray1.bmp로 복사
+                    string tray1Path = Path.Combine(traysDir, "tray1.bmp");
+                    try
+                    {
+                        // 원본 이미지 정보 표시
+                        using (var img = Image.FromFile(selectedImagePath))
+                        {
+                            AppendOutput($"이미지 크기: {img.Width} x {img.Height} px\r\n");
+                            AppendOutput($"파일 크기: {new FileInfo(selectedImagePath).Length / 1024} KB\r\n");
+                        }
+
+                        File.Copy(selectedImagePath, tray1Path, overwrite: true);
+                        AppendOutput($"이미지 준비 완료\r\n");
+
+                        // 선택한 이미지를 pictureBoxTray1에 표시
+                        DisplaySelectedImage(selectedImagePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"오류: 이미지 복사 실패 - {ex.Message}\r\n");
+                        return;
+                    }
+
+                    stopwatch.Start();
+                    AppendOutput($"\r\n처리 시작 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
+
+                    // 3. 자동 파이프라인 실행
+                    bool success = await ExecuteDetectionPipeline();
+
+                    stopwatch.Stop();
+
+                    if (!success)
+                    {
+                        AppendOutput($"\r\n약 검출 실패\r\n");
+                        AppendOutput($"소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초\r\n");
+                        return;
+                    }
+
+                    // 4. 결과 표시
+                    await DisplayDetectionResults();
+
+                    AppendOutput($"약 검출 프로세스 완료!\r\n");
+                    AppendOutput($"총 소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초 ({stopwatch.ElapsedMilliseconds}ms)\r\n");
+                    AppendOutput($"종료 시간: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\r\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                AppendOutput($"\r\n예외 발생: {ex.Message}\r\n");
+                AppendOutput($"스택 트레이스:\r\n{ex.StackTrace}\r\n");
+                if (!stopwatch.IsRunning)
+                {
+                    AppendOutput($"실행 시간: {stopwatch.Elapsed.TotalSeconds:F2}초\r\n");
+                }
+            }
+            finally
+            {
+                buttonDetectPill.Enabled = true;
+            }
+        }
+
+        private async Task<bool> ExecuteDetectionPipeline()
+        {
+            try
+            {
+                // Step 1: 사전 준비 (Prewarm)
+                AppendOutput("[1/3] 사전 준비 실행 중...\r\n");
+
+                var swPrewarm = Stopwatch.StartNew();
+                int retPrewarm = await Task.Run(() => PrewarmPredictionProcessing());
+                swPrewarm.Stop();
+
+                if (retPrewarm != 0)
+                {
+                    AppendOutput($"사전 준비 실패 (반환 코드: {retPrewarm})\r\n");
+                    AppendOutput($"소요 시간: {swPrewarm.Elapsed.TotalSeconds:F2}초\r\n");
+                    return false;
+                }
+                AppendOutput($"사전 준비 완료! (소요 시간: {swPrewarm.Elapsed.TotalSeconds:F2}초)\r\n");
+
+                // Step 2: 처방 마스크 생성
+                AppendOutput("[2/3] 처방 마스크 생성 중...\r\n");
+
+                var swMask = Stopwatch.StartNew();
+                int retMask = await Task.Run(() => RunPrescriptionMasksMain());
+                swMask.Stop();
+
+                if (retMask != 0)
+                {
+                    AppendOutput($"처방 마스크 생성 실패 (반환 코드: {retMask})\r\n");
+                    AppendOutput($"소요 시간: {swMask.Elapsed.TotalSeconds:F2}초\r\n");
+                    return false;
+                }
+                AppendOutput($"처방 마스크 생성 완료! (소요 시간: {swMask.Elapsed.TotalSeconds:F2}초)\r\n");
+
+                // Step 3: 추론 실행 (tray1만 처리)
+                AppendOutput("[3/3] 추론 실행 중...\r\n");
+
+                var swRun = Stopwatch.StartNew();
+                int[] singleTrayRange = { 1, 1 }; // tray1만 처리
+                int retRun = await Task.Run(() => RunPillDetectionMain(singleTrayRange, 1));
+                swRun.Stop();
+
+                if (retRun != 0)
+                {
+                    AppendOutput($"추론 실행 실패 (반환 코드: {retRun})\r\n");
+                    AppendOutput($"소요 시간: {swRun.Elapsed.TotalSeconds:F2}초\r\n");
+                    return false;
+                }
+                AppendOutput($"추론 실행 완료! (소요 시간: {swRun.Elapsed.TotalSeconds:F2}초)\r\n");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"파이프라인 실행 중 오류: {ex.Message}\r\n");
+                return false;
+            }
+        }
+
+        private async Task DisplayDetectionResults()
+        {
+            await Task.Run(() =>
+            {
+                AppendOutput("\r\n" + "═".PadRight(50, '═') + "\r\n");
+                AppendOutput("검출 결과 분석\r\n");
+                AppendOutput("═".PadRight(50, '═') + "\r\n");
+
+                // 1. 크롭된 이미지 확인
+                string croppedDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "cropped");
+                if (Directory.Exists(croppedDir))
+                {
+                    var croppedFiles = Directory.GetFiles(croppedDir, "img_1_*.bmp").OrderBy(f => f).ToList();
+                    AppendOutput($"검출된 알약 이미지: {croppedFiles.Count}개\r\n");
+
+                    if (croppedFiles.Count > 0)
+                    {
+                        AppendOutput($"\r\n크롭된 이미지 목록:\r\n");
+                        foreach (var file in croppedFiles)
+                        {
+                            var fileInfo = new FileInfo(file);
+                            AppendOutput($"   • {Path.GetFileName(file)} ({fileInfo.Length / 1024} KB)\r\n");
+                        }
+
+                        // UI 스레드에서 미리보기 표시
+                        Invoke(new Action(() => ShowDetectionPreview(croppedFiles)));
+                    }
+                    else
+                    {
+                        AppendOutput($"검출된 알약이 없습니다.\r\n");
+                    }
+                }
+                else
+                {
+                    AppendOutput($"cropped 폴더를 찾을 수 없습니다: {croppedDir}\r\n");
+                }
+
+                // 2. CSV 결과 파일 읽기
+                string csvPath = Path.Combine(resultDir, "final_result.csv");
+                if (File.Exists(csvPath))
+                {
+                    try
+                    {
+                        var csvLines = File.ReadAllLines(csvPath, Encoding.UTF8);
+                        AppendOutput($"\r\n검출 결과 (final_result.csv):\r\n");
+                        AppendOutput($"─".PadRight(50, '─') + "\r\n");
+
+                        int displayLines = Math.Min(10, csvLines.Length);
+                        for (int i = 0; i < displayLines; i++)
+                        {
+                            AppendOutput($"{csvLines[i]}\r\n");
+                        }
+
+                        if (csvLines.Length > displayLines)
+                        {
+                            AppendOutput($"... (총 {csvLines.Length}줄 중 {displayLines}줄 표시)\r\n");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"CSV 파일 읽기 실패: {ex.Message}\r\n");
+                    }
+                }
+
+                // 3. Summary 정보
+                string summaryPath = Path.Combine(resultDir, "summary.txt");
+                if (File.Exists(summaryPath))
+                {
+                    try
+                    {
+                        var summaryText = File.ReadAllText(summaryPath, Encoding.UTF8);
+                        AppendOutput($"\r\n요약 정보 (summary.txt):\r\n");
+                        AppendOutput($"─".PadRight(50, '─') + "\r\n");
+                        AppendOutput(summaryText);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"Summary 파일 읽기 실패: {ex.Message}\r\n");
+                    }
+                }
+            });
+        }
+
+        private void ShowDetectionPreview(List<string> imagePaths)
+        {
+            try
+            {
+                flowLayoutPanelTray1Polygons.Controls.Clear();
+                AppendOutput($"\r\n미리보기 패널에 {imagePaths.Count}개 이미지 표시 중...\r\n");
+
+                foreach (string imagePath in imagePaths)
+                {
+                    string displayName = Path.GetFileNameWithoutExtension(imagePath);
+
+                    var panel = new Panel
+                    {
+                        Size = new System.Drawing.Size(200, 120),
+                        Margin = new Padding(2),
+                        BorderStyle = BorderStyle.FixedSingle
+                    };
+
+                    var label = new Label
+                    {
+                        Text = displayName,
+                        AutoSize = false,
+                        Size = new System.Drawing.Size(196, 20),
+                        Location = new System.Drawing.Point(2, 0),
+                        Font = new Font("Consolas", 8F),
+                        BackColor = Color.LightYellow,
+                        TextAlign = ContentAlignment.MiddleCenter
+                    };
+
+                    var pb = new PictureBox
+                    {
+                        Size = new System.Drawing.Size(196, 90),
+                        Location = new System.Drawing.Point(2, 22),
+                        SizeMode = PictureBoxSizeMode.Zoom,
+                        BorderStyle = BorderStyle.None
+                    };
+
+                    try
+                    {
+                        using (var bmp = new Bitmap(imagePath))
+                        {
+                            pb.Image = new Bitmap(bmp);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendOutput($"{displayName} 로드 실패: {ex.Message}\r\n");
+                        continue;
+                    }
+
+                    panel.Controls.Add(label);
+                    panel.Controls.Add(pb);
+                    flowLayoutPanelTray1Polygons.Controls.Add(panel);
+                }
+
+                AppendOutput($"미리보기 표시 완료!\r\n");
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"미리보기 표시 중 오류: {ex.Message}\r\n");
+            }
+        }
+
+        private void DisplaySelectedImage(string imagePath)
+        {
+            try
+            {
+                using (var bmp = new Bitmap(imagePath))
+                {
+                    pictureBoxTray1.Image?.Dispose();
+                    pictureBoxTray1.Image = new Bitmap(bmp);
+                }
+                AppendOutput($"선택한 이미지를 화면에 표시했습니다.\r\n");
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"이미지 표시 실패: {ex.Message}\r\n");
+            }
+        }
     }
 }
