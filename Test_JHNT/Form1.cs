@@ -1921,7 +1921,6 @@ namespace Test_JHNT
                 buttonDetectPill.Enabled = false;
                 AppendOutput("=== 약 검출 프로세스 시작 ===\r\n");
 
-                // 🆕 Step 1: 검출할 약품 선택
                 AppendOutput("\r\n[단계 1/5] 검출할 약품 선택 중...\r\n");
                 var selectedPills = ShowPillSelectionDialog();
 
@@ -1931,11 +1930,9 @@ namespace Test_JHNT
                     return;
                 }
 
-                // 🆕 Step 2: pill_list.txt 저장
                 AppendOutput("\r\n[단계 2/5] pill_list.txt 생성 중...\r\n");
                 SavePillListToFile(selectedPills);
 
-                // Step 3: BMP 이미지 선택
                 AppendOutput("\r\n[단계 3/5] 검출할 이미지 선택 중...\r\n");
                 using (OpenFileDialog openFileDialog = new OpenFileDialog())
                 {
@@ -1956,7 +1953,6 @@ namespace Test_JHNT
                     AppendOutput($"선택된 이미지: {Path.GetFileName(selectedImagePath)}\r\n");
                     AppendOutput($"경로: {selectedImagePath}\r\n");
 
-                    // Step 4: 이미지를 tray1.bmp로 복사
                     string tray1Path = Path.Combine(traysDir, "tray1.bmp");
                     try
                     {
@@ -2278,7 +2274,7 @@ namespace Test_JHNT
 
                         int currentRow = 1;
 
-                        // ===== 헤더 정보 ===== (이전 코드와 동일)
+                        // ===== 헤더 정보 =====
                         worksheet.Cells[currentRow, 1].Value = "검출 정보";
                         worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
                         worksheet.Cells[currentRow, 1].Style.Font.Size = 14;
@@ -2299,7 +2295,7 @@ namespace Test_JHNT
                         worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
                         currentRow += 2;
 
-                        // ===== 원본 이미지 삽입 ===== (이전 코드와 동일)
+                        // ===== 원본 이미지 삽입 =====
                         worksheet.Cells[currentRow, 1].Value = "원본 이미지";
                         worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
                         worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
@@ -2335,7 +2331,7 @@ namespace Test_JHNT
                         }
                         currentRow += 2;
 
-                        // ===== 🔧 개선된 CSV 파싱 로직 =====
+                        // ===== CSV 파싱 로직 =====
                         string csvPath = Path.Combine(resultDir, "final_result.csv");
                         string croppedDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDS", "cropped");
 
@@ -2348,9 +2344,8 @@ namespace Test_JHNT
                                 var csvData = ReadCsvFile(csvPath);
                                 AppendOutput($"CSV 파일 읽기 완료: {csvData.Count}행\r\n");
 
-                                if (csvData.Count > 1) // 헤더 제외
+                                if (csvData.Count > 1)
                                 {
-                                    // 헤더에서 tray1 열 인덱스 찾기
                                     string[] headers = csvData[0];
                                     int tray1ColIndex = -1;
                                     for (int i = 0; i < headers.Length; i++)
@@ -2366,16 +2361,11 @@ namespace Test_JHNT
 
                                     if (tray1ColIndex >= 0)
                                     {
-                                        // 모든 데이터 행에서 tray1 열 데이터 수집
                                         for (int row = 1; row < csvData.Count; row++)
                                         {
                                             string[] rowData = csvData[row];
-
-                                            // prescription_name 가져오기 (첫 번째 열)
                                             string prescriptionName = rowData.Length > 0 ? rowData[0] : "";
                                             string cleanPrescriptionName = ExtractPrescriptionName(prescriptionName);
-
-                                            // "No Match" 행인지 확인
                                             bool isNoMatchRow = cleanPrescriptionName.Equals("No Match", StringComparison.OrdinalIgnoreCase);
 
                                             if (tray1ColIndex < rowData.Length)
@@ -2386,7 +2376,6 @@ namespace Test_JHNT
                                                 {
                                                     AppendOutput($"Row {row} ({cleanPrescriptionName}), Tray1 데이터 파싱 중...\r\n");
 
-                                                    // 줄바꿈으로 분리된 각 항목 처리
                                                     var lines = cellValue.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
 
                                                     foreach (var line in lines)
@@ -2395,15 +2384,12 @@ namespace Test_JHNT
                                                         if (string.IsNullOrEmpty(trimmedLine))
                                                             continue;
 
-                                                        // 🔧 개선된 정규식: 좌표 정보 포함 케이스 처리
-                                                        // 형식: "img_1_1_(100,200,300,400) (0.98, pill_name)" 또는 "img_1_1 (0.98, pill_name)"
                                                         var matchWithName = Regex.Match(trimmedLine, @"^(img_\d+_\d+)(?:_\([^\)]+\))?\s*\(([\d.]+),\s*(.+?)\)");
                                                         if (matchWithName.Success)
                                                         {
-                                                            string cropBaseName = matchWithName.Groups[1].Value; // img_1_1
+                                                            string cropBaseName = matchWithName.Groups[1].Value;
                                                             string confidence = matchWithName.Groups[2].Value;
                                                             string detectedName = matchWithName.Groups[3].Value.Trim();
-
                                                             bool isDetected = !isNoMatchRow;
 
                                                             if (!allDetectionResults.ContainsKey(cropBaseName))
@@ -2421,13 +2407,11 @@ namespace Test_JHNT
                                                             continue;
                                                         }
 
-                                                        // 🔧 형식 2 개선: "img_1_1_(100,200,300,400) (0.98)" 또는 "img_1_1 (0.98)"
                                                         var matchWithoutName = Regex.Match(trimmedLine, @"^(img_\d+_\d+)(?:_\([^\)]+\))?\s*\(([\d.]+)\)");
                                                         if (matchWithoutName.Success)
                                                         {
-                                                            string cropBaseName = matchWithoutName.Groups[1].Value; // img_1_1
+                                                            string cropBaseName = matchWithoutName.Groups[1].Value;
                                                             string confidence = matchWithoutName.Groups[2].Value;
-
                                                             bool isDetected = !isNoMatchRow;
 
                                                             if (!allDetectionResults.ContainsKey(cropBaseName))
@@ -2472,7 +2456,6 @@ namespace Test_JHNT
                         worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
                         currentRow += 2;
 
-                        // 테이블 헤더
                         worksheet.Cells[currentRow, 1].Value = "번호";
                         worksheet.Cells[currentRow, 2].Value = "크롭 이미지";
                         worksheet.Cells[currentRow, 3].Value = "검출 결과";
@@ -2485,7 +2468,6 @@ namespace Test_JHNT
                         headerRange.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin);
                         currentRow++;
 
-                        // 🔧 크롭된 이미지 처리 개선
                         if (Directory.Exists(croppedDir))
                         {
                             var croppedFiles = Directory.GetFiles(croppedDir, "img_1_*.bmp").OrderBy(f => f).ToList();
@@ -2498,8 +2480,6 @@ namespace Test_JHNT
                             {
                                 string cropFile = croppedFiles[i];
                                 string cropFileName = Path.GetFileNameWithoutExtension(cropFile);
-
-                                // 🔧 기본 이름 추출: img_1_10_(292,640,399,747) → img_1_10
                                 string cropBaseName = Regex.Match(cropFileName, @"^(img_\d+_\d+)").Groups[1].Value;
 
                                 // 번호
@@ -2508,19 +2488,19 @@ namespace Test_JHNT
                                 worksheet.Cells[currentRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
 
                                 // 크롭 이미지 삽입
+                                int cropImageHeight = 60;
                                 try
                                 {
                                     using (var cropImage = new Bitmap(cropFile))
                                     {
                                         int cropWidth = cropImage.Width / 4;
                                         int cropHeight = cropImage.Height / 4;
+                                        cropImageHeight = cropHeight;
 
                                         var imageFile = new FileInfo(cropFile);
                                         var excelImage = worksheet.Drawings.AddPicture($"crop_{i}", imageFile);
                                         excelImage.SetPosition(currentRow - 1, 5, 1, 5);
                                         excelImage.SetSize(cropWidth, cropHeight);
-
-                                        worksheet.Row(currentRow).Height = Math.Max(60, cropHeight * 0.75);
                                     }
                                 }
                                 catch (Exception ex)
@@ -2528,10 +2508,11 @@ namespace Test_JHNT
                                     worksheet.Cells[currentRow, 2].Value = $"이미지 로드 실패: {ex.Message}";
                                 }
 
-                                // 🔧 개선된 검출 결과 판단
+                                // 검출 결과 판단
                                 string detectionResult = "미검출";
                                 string confidence = "-";
                                 Color resultColor = Color.LightCoral;
+                                string detectedPillName = null;
 
                                 if (allDetectionResults.ContainsKey(cropBaseName))
                                 {
@@ -2541,6 +2522,7 @@ namespace Test_JHNT
                                     if (info.IsDetected)
                                     {
                                         detectionResult = info.DetectedName;
+                                        detectedPillName = info.DetectedName;
                                         resultColor = Color.LightGreen;
                                         detectedCount++;
                                         AppendOutput($"  ✓ {i + 1}. {cropBaseName}: {detectionResult} ({confidence})\r\n");
@@ -2558,15 +2540,59 @@ namespace Test_JHNT
                                     AppendOutput($"  ? {i + 1}. {cropBaseName}: CSV에 데이터 없음 (파일명: {cropFileName})\r\n");
                                 }
 
+                                int maxImageHeight = cropImageHeight;
+                                int textHeight = 20; // 텍스트를 위한 공간
+
+                                // 검출 결과 텍스트 작성
                                 worksheet.Cells[currentRow, 3].Value = detectionResult;
                                 worksheet.Cells[currentRow, 3].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
                                 worksheet.Cells[currentRow, 3].Style.Fill.BackgroundColor.SetColor(resultColor);
                                 worksheet.Cells[currentRow, 3].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
                                 worksheet.Cells[currentRow, 3].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                                worksheet.Cells[currentRow, 3].Style.Font.Bold = true;
+                                worksheet.Cells[currentRow, 3].Style.Font.Size = 10;
 
+                                if (!string.IsNullOrEmpty(detectedPillName))
+                                {
+                                    string pillImagePath = FindPillDatasetImage(datasetsDir, detectedPillName);
+                                    if (!string.IsNullOrEmpty(pillImagePath) && File.Exists(pillImagePath))
+                                    {
+                                        try
+                                        {
+                                            using (var pillImage = new Bitmap(pillImagePath))
+                                            {
+                                                int pillWidth = pillImage.Width / 4;
+                                                int pillHeight = pillImage.Height / 4;
+
+                                                var imageFile = new FileInfo(pillImagePath);
+                                                var excelImage = worksheet.Drawings.AddPicture($"pill_{i}", imageFile);
+
+                                                // 텍스트 아래에 이미지 배치 (텍스트 공간 + 5px 여백)
+                                                excelImage.SetPosition(currentRow - 1, textHeight + 5, 2, 5);
+                                                excelImage.SetSize(pillWidth, pillHeight);
+
+                                                maxImageHeight = Math.Max(maxImageHeight, textHeight + pillHeight + 10);
+                                                AppendOutput($"  📷 약품 이미지 삽입: {Path.GetFileName(pillImagePath)}\r\n");
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            AppendOutput($"  ⚠ 약품 이미지 삽입 실패 ({detectedPillName}): {ex.Message}\r\n");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        AppendOutput($"  ⚠ 약품 이미지를 찾을 수 없음: {detectedPillName}\r\n");
+                                    }
+                                }
+
+                                // 신뢰도
                                 worksheet.Cells[currentRow, 4].Value = confidence;
                                 worksheet.Cells[currentRow, 4].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
                                 worksheet.Cells[currentRow, 4].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+
+                                // 행 높이 조정 (크롭 이미지와 약품 이미지+텍스트 중 큰 값)
+                                worksheet.Row(currentRow).Height = Math.Max(60, maxImageHeight * 0.75);
 
                                 var rowRange = worksheet.Cells[currentRow, 1, currentRow, 4];
                                 rowRange.Style.Border.BorderAround(OfficeOpenXml.Style.ExcelBorderStyle.Thin);
@@ -2617,11 +2643,10 @@ namespace Test_JHNT
                             currentRow++;
                         }
 
-                        // 열 너비 조정
-                        worksheet.Column(1).Width = 15;
-                        worksheet.Column(2).Width = 30;
-                        worksheet.Column(3).Width = 25;
-                        worksheet.Column(4).Width = 15;
+                        worksheet.Column(1).Width = 10;   // 번호
+                        worksheet.Column(2).Width = 25;   // 크롭 이미지
+                        worksheet.Column(3).Width = 30;   // 검출 결과 (텍스트 + 이미지)
+                        worksheet.Column(4).Width = 12;   // 신뢰도
 
                         // 파일 저장
                         package.SaveAs(excelFile);
@@ -2635,6 +2660,56 @@ namespace Test_JHNT
                     AppendOutput($"스택 트레이스: {ex.StackTrace}\r\n");
                 }
             });
+        }
+
+        private string FindPillDatasetImage(string datasetsDir, string pillName)
+        {
+            if (string.IsNullOrEmpty(pillName) || !Directory.Exists(datasetsDir))
+                return null;
+
+            // 약품 폴더 경로
+            string pillFolderPath = Path.Combine(datasetsDir, pillName);
+            if (!Directory.Exists(pillFolderPath))
+            {
+                // 폴더명이 정확히 일치하지 않으면 부분 일치 검색
+                var allDirs = Directory.GetDirectories(datasetsDir);
+                foreach (var dir in allDirs)
+                {
+                    string dirName = Path.GetFileName(dir);
+                    if (dirName.Equals(pillName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        pillFolderPath = dir;
+                        break;
+                    }
+                }
+
+                if (!Directory.Exists(pillFolderPath))
+                    return null;
+            }
+
+            // 이미지 파일 확장자
+            string[] extensions = { ".bmp", ".jpg", ".jpeg", ".png" };
+
+            try
+            {
+                // 약품 폴더에서 첫 번째 이미지 파일 찾기
+                var imageFiles = Directory.GetFiles(pillFolderPath)
+                    .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
+                    .OrderBy(f => f)
+                    .ToList();
+
+                if (imageFiles.Count > 0)
+                {
+                    // 첫 번째 이미지 반환 (예: A03700114_0.bmp)
+                    return imageFiles[0];
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"경고: 약품 이미지 검색 중 오류 ({pillName}): {ex.Message}\r\n");
+            }
+
+            return null;
         }
 
         private class DetectionInfo
